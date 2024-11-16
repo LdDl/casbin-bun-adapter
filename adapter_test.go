@@ -1,0 +1,1 @@
+package casbin_bun_adapter
