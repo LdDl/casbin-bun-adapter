@@ -22,9 +22,9 @@ __Attentions/warnings__:
 
 - [AutoSave](https://casbin.org/docs/adapters/#autosave) feature is not implemented yet.
 
-- Do not combine [StartUpdatesListening](./trigger.go#L103) and [SavePolicy](./adapter.go#L156) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
+- Do not combine [StartUpdatesListening](./trigger.go#L159) and [SavePolicy](./adapter.go#L158) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
 
-- While using [StartUpdatesListening](./trigger.go#L103) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./trigger.go#L186) without rollback mechanism. That means if AddPolicy call fails on `*casbin.SyncedEnforcer` then there is no rollback of previously called RemovePolicy
+- While using [StartUpdatesListening](./trigger.go#L103) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./trigger.go#L186) without rollback mechanism. That means if AddPolicy call fails on `*casbin.SyncedEnforcer` then there will not be any rollback for previously called RemovePolicy
 
 
 ## Installation
