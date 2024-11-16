@@ -13,25 +13,36 @@ import (
 type BunAdapter struct {
 	*bun.DB
 	matcher MatcherOptions
+	trigger TriggerOptions
 }
 
-var defaultMatcherOpts = MatcherOptions{
-	SchemaName: "public",
-	TableName:  "casbin_policy",
-	ID:         "id",
-	PType:      "ptype",
-	V0:         "v0",
-	V1:         "v1",
-	V2:         "v2",
-	V3:         "v3",
-	V4:         "v4",
-	V5:         "v5",
-}
+var (
+	defaultMatcherOpts = MatcherOptions{
+		SchemaName: "public",
+		TableName:  "casbin_policy",
+		ID:         "id",
+		PType:      "ptype",
+		V0:         "v0",
+		V1:         "v1",
+		V2:         "v2",
+		V3:         "v3",
+		V4:         "v4",
+		V5:         "v5",
+	}
+	defaultTriggerOpts = TriggerOptions{
+		Name:               "casbin_trigger",
+		FunctionName:       "update_policies_table",
+		FunctionSchemaName: "public",
+		FunctionReplace:    false,
+		ChannelName:        "CASBIN_UPDATE_MESSAGE",
+	}
+)
 
 // NewBunAdapter returns new *BunAdapter. Connections to database must be provided. Other arguments are optional
 func NewBunAdapter(bunConnection *bun.DB, opts ...func(*BunAdapter)) *BunAdapter {
 	defaultMatcher := defaultMatcherOpts
-	a := &BunAdapter{bunConnection, defaultMatcher}
+	defaultTrigger := defaultTriggerOpts
+	a := &BunAdapter{bunConnection, defaultMatcher, defaultTrigger}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -71,6 +82,25 @@ func WithMatcherOptions(matcher MatcherOptions) func(*BunAdapter) {
 		}
 		if a.matcher.V5 == "" {
 			a.matcher.V5 = defaultMatcherOpts.V5
+		}
+	}
+}
+
+// WithTriggerOptions overrides default trigger options. If some of keys are empty strings than default values will be applied
+func WithTriggerOptions(trigger TriggerOptions) func(*BunAdapter) {
+	return func(a *BunAdapter) {
+		a.trigger = trigger
+		if a.trigger.Name == "" {
+			a.trigger.Name = defaultTriggerOpts.Name
+		}
+		if a.trigger.FunctionName == "" {
+			a.trigger.FunctionName = defaultTriggerOpts.FunctionName
+		}
+		if a.trigger.FunctionSchemaName == "" {
+			a.trigger.FunctionSchemaName = defaultTriggerOpts.FunctionSchemaName
+		}
+		if a.trigger.ChannelName == "" {
+			a.trigger.ChannelName = defaultTriggerOpts.ChannelName
 		}
 	}
 }

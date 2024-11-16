@@ -47,6 +47,20 @@ type MatcherOptions struct {
 	V5         string
 }
 
+// TriggerOptions is for defining trigger whicl will be executed after data update in database table
+type TriggerOptions struct {
+	// Trigger name
+	Name string
+	// Function which must be executed
+	FunctionName string
+	// Schema name where function is located
+	FunctionSchemaName string
+	// If function needed to be replaced in case it exists
+	FunctionReplace bool
+	// Name for PostgreSQL channel for listening updates
+	ChannelName string
+}
+
 func (cp CasbinPolicy) getRuleDefinition() []string {
 	ans := make([]string, 0, 6)
 	if cp.V0 != "" {

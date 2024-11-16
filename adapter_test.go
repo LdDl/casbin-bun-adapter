@@ -30,3 +30,17 @@ func TestMatcherDefaults(t *testing.T) {
 	assert.Equal(t, "v4", adapter.matcher.V4)
 	assert.Equal(t, defaultMatcherOpts.V5, adapter.matcher.V5)
 }
+
+// go test -run '^TestTriggerDefaults$' *.go -v
+func TestTriggerDefaults(t *testing.T) {
+	trigger := TriggerOptions{
+		FunctionName: "user_fn",
+		ChannelName:  "custom_ch_name",
+	}
+	adapter := NewBunAdapter(nil, WithTriggerOptions(trigger))
+	assert.Equal(t, defaultTriggerOpts.Name, adapter.trigger.Name)
+	assert.Equal(t, "user_fn", adapter.trigger.FunctionName) // Must be default
+	assert.Equal(t, defaultTriggerOpts.FunctionSchemaName, adapter.trigger.FunctionSchemaName)
+	assert.Equal(t, false, adapter.trigger.FunctionReplace)
+	assert.Equal(t, "custom_ch_name", adapter.trigger.ChannelName)
+}

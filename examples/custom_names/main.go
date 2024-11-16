@@ -85,7 +85,6 @@ func main() {
 		log.Println("Error on creating new casbin enforcer", err)
 		return
 	}
-	_ = enforcer
 
 	// Load policies from database
 	err = enforcer.LoadPolicy()
