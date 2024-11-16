@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	casbinbunadapter "github.com/LdDl/casbin-bun-adapter"
 	"github.com/casbin/casbin/v2"
@@ -60,7 +61,6 @@ func main() {
 		 (2,'p','bob','data2','write','allow',NULL,NULL),
 		 (3,'p','data2_admin','data2','read','allow',NULL,NULL),
 		 (4,'p','data2_admin','data2','write','allow',NULL,NULL),
-		 (5,'p','alice','data2','write','deny',NULL,NULL),
 		 (6,'g','alice','data2_admin',NULL,NULL,NULL,NULL);
 	  SELECT SETVAL('dev.potato_policies_id_seq', (SELECT MAX(id) + 1 FROM dev.potato_policies));
 	*/
@@ -99,25 +99,9 @@ func main() {
 		return
 	}
 
-	enforcer, err := casbin.NewEnforcer("examples/custom_names/rbac_deny.conf", adapter)
+	enforcer, err := casbin.NewSyncedEnforcer("examples/custom_names/rbac_deny.conf", adapter)
 	if err != nil {
 		log.Println("Error on creating new casbin enforcer", err)
-		return
-	}
-
-	/* Start listening to database table updated. Make sure it has been started on prepare enforcer */
-	// When data in table changes (due INSERT/UPDATE operation) enforcer rules would be updated too
-	// Be careful when making application logic: make sure that you not going to use AutoSave/SavePolicy in casbin along with listening to database updates since it could cause infinity recursion
-	err = adapter.StartUpdatesListening(enforcer)
-	if err != nil {
-		log.Println("Error on starting database listener", err)
-		return
-	}
-
-	// Load policies from database
-	err = enforcer.LoadPolicy()
-	if err != nil {
-		log.Println("Error on loading policies into the enforcer", err)
 		return
 	}
 
@@ -129,10 +113,44 @@ func main() {
 	}
 	fmt.Println("Has access?", found)
 
-	found, err = enforcer.Enforce("alice", "data2", "write") // Should be FALSE due deny rule with ID '5'
+	found, err = enforcer.Enforce("alice", "data2", "write") // Should be TRUE since there is no overrides
 	if err != nil {
 		log.Println("Error on enforcing", err)
 		return
 	}
 	fmt.Println("Has access?", found)
+
+	/* Start listening to database table updated. Make sure it has been started on prepare enforcer */
+	// When data in table changes (due INSERT/UPDATE operation) enforcer rules would be updated too
+	// Be careful when making application logic: make sure that you not going to use AutoSave/SavePolicy in casbin along with listening to database updates since it could cause infinity recursion
+	errCh := make(chan error)
+	go func(enf *casbin.SyncedEnforcer, errCh chan error) {
+		err = adapter.StartUpdatesListening(enf)
+		if err != nil {
+			log.Println("Error on database listener", err)
+			errCh <- err
+		}
+	}(enforcer, errCh)
+
+	time.Sleep(100 * time.Millisecond)
+	_, err = dbConn.Exec("INSERT INTO dev.potato_policies (id,pt,v0,haha,v2,v3,v4,v5) VALUES (5,'p','alice','data2','write','deny',NULL,NULL);")
+	if err != nil {
+		log.Println("Error on executing SQL query", err)
+		return
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	found, err = enforcer.Enforce("alice", "data2", "write") // Now should be FALSE due deny rule with ID '5'
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access after DENY rule insert?", found)
+
+	panic("Need to make example for update/delete")
+	select {
+	case e := <-errCh:
+		log.Println("Err", e)
+		return
+	}
 }

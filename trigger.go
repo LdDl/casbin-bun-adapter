@@ -108,7 +108,7 @@ func (a *BunAdapter) PrepareTrigger() error {
 	return err
 }
 
-func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.Enforcer) error {
+func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) error {
 	dbChanMessages, err := a.initDBListener()
 	if err != nil {
 		return errors.Wrap(err, "Can't initialize database LISTEN")
@@ -120,14 +120,24 @@ func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.Enforcer) error {
 		if err != nil {
 			return errors.Wrapf(err, "Can't read payload from database. Payload is: '%s'", payloadStr)
 		}
-		fmt.Println(payloadData)
 		switch payloadData.EventType {
 		case EVENT_PAYLOAD_INSERT:
-			fmt.Println("Need to insert")
-		// @todo
+			ptype := payloadData.New.PType[:1]
+			switch ptype {
+			case "p":
+				_, err := enforcer.AddPolicy(payloadData.New.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad new policy. Policy is: '%s'", payloadStr)
+				}
+			case "g":
+				_, err := enforcer.AddGroupingPolicy(payloadData.New.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad new grouping policy. Policy is: '%s'", payloadStr)
+				}
+			}
 		case EVENT_PAYLOAD_UPDATE:
 			fmt.Println("Need to update")
-		// @todo
+			// @todo
 		case EVENT_PAYLOAD_DELETE:
 			fmt.Println("Need to delete")
 			// @todo

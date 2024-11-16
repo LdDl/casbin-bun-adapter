@@ -133,6 +133,7 @@ func (a *BunAdapter) LoadPolicy(model model.Model) error {
 			return err
 		}
 	}
+	fmt.Println("Called load")
 	return nil
 }
 
