@@ -46,3 +46,26 @@ type MatcherOptions struct {
 	V4         string
 	V5         string
 }
+
+func (cp CasbinPolicy) getRulesArray() []string {
+	ans := make([]string, 0, 6)
+	if cp.V0 != "" {
+		ans = append(ans, cp.V0)
+	}
+	if cp.V1 != "" {
+		ans = append(ans, cp.V1)
+	}
+	if cp.V2 != "" {
+		ans = append(ans, cp.V2)
+	}
+	if cp.V3 != "" {
+		ans = append(ans, cp.V3)
+	}
+	if cp.V4 != "" {
+		ans = append(ans, cp.V4)
+	}
+	if cp.V5 != "" {
+		ans = append(ans, cp.V5)
+	}
+	return ans
+}

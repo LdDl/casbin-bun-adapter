@@ -4,6 +4,7 @@ go 1.22.5
 
 require (
 	github.com/casbin/casbin/v2 v2.101.0
+	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.9.0
 	github.com/uptrace/bun v1.2.5
 	github.com/uptrace/bun/dialect/pgdialect v1.2.5

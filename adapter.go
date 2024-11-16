@@ -2,10 +2,10 @@ package casbinbunadapter
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/casbin/casbin/v2/model"
+	"github.com/pkg/errors"
 	"github.com/uptrace/bun"
 )
 
@@ -106,7 +106,19 @@ func (a *BunAdapter) LoadPolicy(model model.Model) error {
 }
 
 func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
-	panic("Not implemented")
+	rulesArray := policy.getRulesArray()
+	found, err := model.HasPolicyEx(policy.PType[:1], policy.PType, rulesArray)
+	if err != nil {
+		return errors.Wrapf(err, "Can't validate single policy. Policy: '%+v'", policy)
+	}
+	if found {
+		// Just skip existing policy
+		return nil
+	}
+	err = model.AddPolicy(policy.PType[:1], policy.PType, rulesArray)
+	if err != nil {
+		return errors.Wrapf(err, "Can't load single policy. Policy: '%+v'", policy)
+	}
 	return nil
 }
 
