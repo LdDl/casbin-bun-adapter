@@ -15,7 +15,7 @@ var (
 	triggerTemplate = `
   create%[1]s trigger %[2]s_%[3]s_%[4]s
   after
-  insert
+  insert or delete
   on
   %[2]s.%[3]s for each row execute function
   %[5]s.%[6]s();
@@ -40,6 +40,24 @@ var (
 							'v3', new.%[10]s,
 							'v4', new.%[11]s,
 							'v5', new.%[12]s
+						)
+					)::text
+        );
+      end if;
+      if TG_OP = 'DELETE' then
+        perform pg_notify(
+          '%[4]s',
+					jsonb_build_object(
+						'event_type', '%[14]s',
+						'old', jsonb_build_object(
+							'id', old.%[5]s,
+							'ptype', old.%[6]s,
+							'v0', old.%[7]s,
+							'v1', old.%[8]s,
+							'v2', old.%[9]s,
+							'v3', old.%[10]s,
+							'v4', old.%[11]s,
+							'v5', old.%[12]s
 						)
 					)::text
         );
@@ -76,6 +94,7 @@ func (a *BunAdapter) PrepareTrigger() error {
 		a.matcher.V4,
 		a.matcher.V5,
 		EVENT_PAYLOAD_INSERT,
+		EVENT_PAYLOAD_DELETE,
 	)
 	ctx := context.Background()
 	// We should run it in transaction since potential INSERT operation problem
@@ -139,8 +158,19 @@ func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) erro
 			fmt.Println("Need to update")
 			// @todo
 		case EVENT_PAYLOAD_DELETE:
-			fmt.Println("Need to delete")
-			// @todo
+			ptype := payloadData.Old.PType[:1]
+			switch ptype {
+			case "p":
+				_, err := enforcer.RemovePolicy(payloadData.Old.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad old policy. Policy is: '%s'", payloadStr)
+				}
+			case "g":
+				_, err := enforcer.RemoveGroupingPolicy(payloadData.Old.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad old grouping policy. Policy is: '%s'", payloadStr)
+				}
+			}
 		}
 	}
 

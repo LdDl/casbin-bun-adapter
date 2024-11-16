@@ -113,7 +113,7 @@ func main() {
 	}
 	fmt.Println("Has access?", found)
 
-	found, err = enforcer.Enforce("alice", "data2", "write") // Should be TRUE since there is no overrides
+	found, err = enforcer.Enforce("alice", "data2", "write") // Should be FALSE due deny rule with ID '5'
 	if err != nil {
 		log.Println("Error on enforcing", err)
 		return
@@ -133,6 +133,21 @@ func main() {
 	}(enforcer, errCh)
 
 	time.Sleep(100 * time.Millisecond)
+	_, err = dbConn.Exec("delete from dev.potato_policies where id = 5;")
+	if err != nil {
+		log.Println("Error on executing SQL query", err)
+		return
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	found, err = enforcer.Enforce("alice", "data2", "write") // Now should be TRUE due removing rule with ID '5'
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access after DENY rule delete?", found)
+
+	time.Sleep(100 * time.Millisecond)
 	_, err = dbConn.Exec("INSERT INTO dev.potato_policies (id,pt,v0,haha,v2,v3,v4,v5) VALUES (5,'p','alice','data2','write','deny',NULL,NULL);")
 	if err != nil {
 		log.Println("Error on executing SQL query", err)
@@ -147,7 +162,7 @@ func main() {
 	}
 	fmt.Println("Has access after DENY rule insert?", found)
 
-	panic("Need to make example for update/delete")
+	panic("Need to make example for update")
 	select {
 	case e := <-errCh:
 		log.Println("Err", e)
