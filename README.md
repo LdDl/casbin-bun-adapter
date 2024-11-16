@@ -24,7 +24,7 @@ __Attentions/warnings__:
 
 - Do not combine [StartUpdatesListening](./trigger.go#L103) and [SavePolicy](./adapter.go#L156) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
 
-- While using [StartUpdatesListening](./trigger.go#L103) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./trigger.go#L186) without rollback mechanism. That means is AddPolicy call fails on `*casbin.SyncedEnforcer` then there is no rollback of previously called RemovePolicy
+- While using [StartUpdatesListening](./trigger.go#L103) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./trigger.go#L186) without rollback mechanism. That means if AddPolicy call fails on `*casbin.SyncedEnforcer` then there is no rollback of previously called RemovePolicy
 
 
 ## Installation
