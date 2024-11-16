@@ -34,6 +34,7 @@ var (
 		FunctionName:       "update_policies_table",
 		FunctionSchemaName: "public",
 		FunctionReplace:    false,
+		TriggerReplace:     false,
 		ChannelName:        "CASBIN_UPDATE_MESSAGE",
 	}
 )

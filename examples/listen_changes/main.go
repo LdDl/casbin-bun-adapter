@@ -83,6 +83,7 @@ func main() {
 		FunctionName:       "update_policies_table",
 		FunctionSchemaName: "public",
 		FunctionReplace:    true,
+		TriggerReplace:     true, // Works only for PostgreSQL 14.x and above
 		ChannelName:        "CASBIN_UPDATE_MESSAGE",
 	}
 	/* Initialize adapter */
@@ -98,11 +99,18 @@ func main() {
 		return
 	}
 
-	panic("Start listening changes in trigger fn")
-
 	enforcer, err := casbin.NewEnforcer("examples/custom_names/rbac_deny.conf", adapter)
 	if err != nil {
 		log.Println("Error on creating new casbin enforcer", err)
+		return
+	}
+
+	/* Start listening to database table updated. Make sure it has been started on prepare enforcer */
+	// When data in table changes (due INSERT/UPDATE operation) enforcer rules would be updated too
+	// Be careful when making application logic: make sure that you not going to use AutoSave/SavePolicy in casbin along with listening to database updates since it could cause infinity recursion
+	err = adapter.StartUpdatesListening(enforcer)
+	if err != nil {
+		log.Println("Error on starting database listener", err)
 		return
 	}
 

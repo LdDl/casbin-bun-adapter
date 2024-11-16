@@ -23,14 +23,14 @@ import (
 // );
 type CasbinPolicy struct {
 	bun.BaseModel `bun:"casbin_policies,alias:t"`
-	ID            int    `bun:"id,pk,autoincrement"` // I'm not sure if 'autoincrement' will work as IDENTITY rather than SERIAL
-	PType         string `bun:"ptype,type:varchar(2),notnull,default:'p'"`
-	V0            string `bun:"v0,type:varchar(256),nullzero"`
-	V1            string `bun:"v1,type:varchar(256),nullzero"`
-	V2            string `bun:"v2,type:varchar(256),nullzero"`
-	V3            string `bun:"v3,type:varchar(256),nullzero"`
-	V4            string `bun:"v4,type:varchar(256),nullzero"`
-	V5            string `bun:"v5,type:varchar(256),nullzero"`
+	ID            int    `bun:"id,pk,autoincrement" json:"id"` // I'm not sure if 'autoincrement' will work as IDENTITY rather than SERIAL
+	PType         string `bun:"ptype,type:varchar(2),notnull,default:'p'" json:"ptype"`
+	V0            string `bun:"v0,type:varchar(256),nullzero" json:"v0"`
+	V1            string `bun:"v1,type:varchar(256),nullzero" json:"v1"`
+	V2            string `bun:"v2,type:varchar(256),nullzero" json:"v2"`
+	V3            string `bun:"v3,type:varchar(256),nullzero" json:"v3"`
+	V4            string `bun:"v4,type:varchar(256),nullzero" json:"v4"`
+	V5            string `bun:"v5,type:varchar(256),nullzero" json:"v5"`
 }
 
 // MatcherOptions is for matching user defined columns to canonical Casbin columns
@@ -57,6 +57,8 @@ type TriggerOptions struct {
 	FunctionSchemaName string
 	// If function needed to be replaced in case it exists
 	FunctionReplace bool
+	// If trigger needed to be replaced in case it exists. Be carefull. This is PostgreSQL 14.x and above feature!
+	TriggerReplace bool
 	// Name for PostgreSQL channel for listening updates
 	ChannelName string
 }

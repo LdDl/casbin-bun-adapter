@@ -34,13 +34,15 @@ func TestMatcherDefaults(t *testing.T) {
 // go test -run '^TestTriggerDefaults$' *.go -v
 func TestTriggerDefaults(t *testing.T) {
 	trigger := TriggerOptions{
-		FunctionName: "user_fn",
-		ChannelName:  "custom_ch_name",
+		FunctionName:   "user_fn",
+		ChannelName:    "custom_ch_name",
+		TriggerReplace: true,
 	}
 	adapter := NewBunAdapter(nil, WithTriggerOptions(trigger))
 	assert.Equal(t, defaultTriggerOpts.Name, adapter.trigger.Name)
 	assert.Equal(t, "user_fn", adapter.trigger.FunctionName) // Must be default
 	assert.Equal(t, defaultTriggerOpts.FunctionSchemaName, adapter.trigger.FunctionSchemaName)
 	assert.Equal(t, false, adapter.trigger.FunctionReplace)
+	assert.Equal(t, true, adapter.trigger.TriggerReplace)
 	assert.Equal(t, "custom_ch_name", adapter.trigger.ChannelName)
 }

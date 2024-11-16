@@ -2,19 +2,23 @@ package casbinbunadapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/casbin/casbin/v2"
+	"github.com/pkg/errors"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 var (
 	triggerTemplate = `
-  create trigger %[1]s_%[2]s_%[3]s
+  create%[1]s trigger %[2]s_%[3]s_%[4]s
   after
   insert
   on
-  %[1]s.%[2]s for each row execute function
-  %[4]s.%[5]s();
+  %[2]s.%[3]s for each row execute function
+  %[5]s.%[6]s();
   `
 	triggerProcedureTemplate = `
   CREATE%[1]s FUNCTION %[2]s.%[3]s()
@@ -22,19 +26,22 @@ var (
   LANGUAGE plpgsql
   AS $function$
     begin
-      if TG_OP = 'UPDATE' then
+      if TG_OP = 'INSERT' then
         perform pg_notify(
           '%[4]s',
-          jsonb_build_object(
-            'id', old.%[5]s,
-            'pt_type', new.%[5]s,
-            'v0', new.%[6]s,
-            'v1', new.%[7]s,
-            'v2', new.%[8]s,
-            'v3', new.%[9]s,
-            'v4', new.%[10]s,
-            'v5', new.%[11]s
-          )::text
+					jsonb_build_object(
+						'event_type', '%[13]s',
+						'new', jsonb_build_object(
+							'id', new.%[5]s,
+							'ptype', new.%[6]s,
+							'v0', new.%[7]s,
+							'v1', new.%[8]s,
+							'v2', new.%[9]s,
+							'v3', new.%[10]s,
+							'v4', new.%[11]s,
+							'v5', new.%[12]s
+						)
+					)::text
         );
       end if;
       RETURN NEW;
@@ -50,7 +57,11 @@ var (
 // Finalized function name will match following template: "$SCHEMA_NAME$.$FUNCTION_NAME$"
 // Finalized trigger name will match following template: "$SCHEMA_NAME$_$TABLE_NAME$_$TRIGGER_NAME$"
 func (a *BunAdapter) PrepareTrigger() error {
-	triggerBody := fmt.Sprintf(triggerTemplate, a.matcher.SchemaName, a.matcher.TableName, a.trigger.Name, a.trigger.FunctionSchemaName, a.trigger.FunctionName)
+	replaceTr := ""
+	if a.trigger.TriggerReplace {
+		replaceTr = " OR REPLACE"
+	}
+	triggerBody := fmt.Sprintf(triggerTemplate, replaceTr, a.matcher.SchemaName, a.matcher.TableName, a.trigger.Name, a.trigger.FunctionSchemaName, a.trigger.FunctionName)
 	replaceFn := ""
 	if a.trigger.FunctionReplace {
 		replaceFn = " OR REPLACE"
@@ -64,6 +75,7 @@ func (a *BunAdapter) PrepareTrigger() error {
 		a.matcher.V3,
 		a.matcher.V4,
 		a.matcher.V5,
+		EVENT_PAYLOAD_INSERT,
 	)
 	ctx := context.Background()
 	// We should run it in transaction since potential INSERT operation problem
@@ -94,4 +106,57 @@ func (a *BunAdapter) PrepareTrigger() error {
 		return err
 	})
 	return err
+}
+
+func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.Enforcer) error {
+	dbChanMessages, err := a.initDBListener()
+	if err != nil {
+		return errors.Wrap(err, "Can't initialize database LISTEN")
+	}
+	for msg := range dbChanMessages {
+		payloadStr := msg.Payload
+		payloadData := TriggerDataPayload{}
+		err = json.Unmarshal([]byte(payloadStr), &payloadData)
+		if err != nil {
+			return errors.Wrapf(err, "Can't read payload from database. Payload is: '%s'", payloadStr)
+		}
+		fmt.Println(payloadData)
+		switch payloadData.EventType {
+		case EVENT_PAYLOAD_INSERT:
+			fmt.Println("Need to insert")
+		// @todo
+		case EVENT_PAYLOAD_UPDATE:
+			fmt.Println("Need to update")
+		// @todo
+		case EVENT_PAYLOAD_DELETE:
+			fmt.Println("Need to delete")
+			// @todo
+		}
+	}
+
+	return nil
+}
+
+func (a *BunAdapter) initDBListener() (<-chan pgdriver.Notification, error) {
+	ctx := context.Background()
+	ln := pgdriver.NewListener(a.DB)
+	err := ln.Listen(ctx, a.trigger.ChannelName)
+	if err != nil {
+		return nil, err
+	}
+	return ln.Channel(), nil
+}
+
+type TriggerEventPayloadType string
+
+var (
+	EVENT_PAYLOAD_INSERT = TriggerEventPayloadType("EVENT_CASBIN_INSERT")
+	EVENT_PAYLOAD_UPDATE = TriggerEventPayloadType("EVENT_CASBIN_UPDATE")
+	EVENT_PAYLOAD_DELETE = TriggerEventPayloadType("EVENT_CASBIN_DELETE")
+)
+
+type TriggerDataPayload struct {
+	EventType TriggerEventPayloadType `json:"event_type"`
+	Old       CasbinPolicy            `json:"old"`
+	New       CasbinPolicy            `json:"new"`
 }
