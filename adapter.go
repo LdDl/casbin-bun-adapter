@@ -79,7 +79,7 @@ func WithMatcherOptions(matcher MatcherOptions) func(*BunAdapter) {
 func (a *BunAdapter) LoadPolicy(model model.Model) error {
 	var data []CasbinPolicy
 	ctx := context.Background()
-	query := a.DB.NewSelect().
+	query := a.NewSelect().
 		Model(&data).
 		ModelTableExpr("?.? as t", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
 		ColumnExpr("? as id", bun.Name(a.matcher.ID)).
@@ -106,8 +106,8 @@ func (a *BunAdapter) LoadPolicy(model model.Model) error {
 }
 
 func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
-	rulesArray := policy.getRulesArray()
-	found, err := model.HasPolicyEx(policy.PType[:1], policy.PType, rulesArray)
+	ruleDef := policy.getRuleDefinition()
+	found, err := model.HasPolicyEx(policy.PType[:1], policy.PType, ruleDef)
 	if err != nil {
 		return errors.Wrapf(err, "Can't validate single policy. Policy: '%+v'", policy)
 	}
@@ -115,7 +115,7 @@ func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
 		// Just skip existing policy
 		return nil
 	}
-	err = model.AddPolicy(policy.PType[:1], policy.PType, rulesArray)
+	err = model.AddPolicy(policy.PType[:1], policy.PType, ruleDef)
 	if err != nil {
 		return errors.Wrapf(err, "Can't load single policy. Policy: '%+v'", policy)
 	}
@@ -124,7 +124,71 @@ func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
 
 // SavePolicy saves all policy rules to the storage
 func (a *BunAdapter) SavePolicy(model model.Model) error {
-	return errors.New("not implemented")
+	policies := []CasbinPolicy{}
+
+	/* Collect policies and rules */
+	if p, ok := model["p"]; ok {
+		for ptype, ast := range p {
+			for _, ruleDef := range ast.Policy {
+				policies = append(policies, NewCasbinPolicyFrom(ptype, ruleDef))
+			}
+		}
+	}
+
+	if g, ok := model["g"]; ok {
+		for ptype, ast := range g {
+			for _, ruleDef := range ast.Policy {
+				policies = append(policies, NewCasbinPolicyFrom(ptype, ruleDef))
+			}
+		}
+	}
+
+	/* Update table data */
+	err := a.savePoliciesToDB(policies)
+	if err != nil {
+		return errors.Wrap(err, "Can't save policies to the database")
+	}
+	return nil
+}
+
+func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
+	ctx := context.Background()
+	// We should run it in transaction since potential INSERT operation problem
+	err := a.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		/* Clean table first */
+		truncateQuery := tx.NewTruncateTable().
+			ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+			Model((*CasbinPolicy)(nil))
+		_, err := truncateQuery.Exec(ctx)
+		if err != nil {
+			return err
+		}
+		/* Insert policies */
+		// Since it is hard to change column name, just insert it a loop instead of bulk insert
+		for i := range policies {
+			policy := policies[i]
+			// https://bun.uptrace.dev/guide/query-insert.html#maps
+			values := map[string]interface{}{
+				a.matcher.PType: policy.PType,
+				a.matcher.V0:    policy.V0,
+				a.matcher.V1:    policy.V1,
+				a.matcher.V2:    policy.V2,
+				a.matcher.V3:    policy.V3,
+				a.matcher.V4:    policy.V4,
+				a.matcher.V5:    policy.V5,
+			}
+			query := tx.NewInsert().
+				ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+				Model(&values)
+			_, err = query.Exec(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "Can't insert single policy. Policy: %+v", policy)
+			}
+			fmt.Println("done")
+		}
+		return nil
+	})
+	return err
 }
 
 // AddPolicy adds a policy rule to the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave

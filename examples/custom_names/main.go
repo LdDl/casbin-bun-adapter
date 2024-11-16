@@ -55,13 +55,14 @@ func main() {
 	);
 	*/
 	/* Assuming we will have RBAC with deny, let's populate table with some data. SQL is:
-	INSERT INTO dev.potato_policies (id,pt,v0,haha,v2,v3,v4,v5) VALUES
-	 (1,'p','alice','data1','read','allow',NULL,NULL),
-	 (2,'p','bob','data2','write','allow',NULL,NULL),
-	 (3,'p','data2_admin','data2','read','allow',NULL,NULL),
-	 (4,'p','data2_admin','data2','write','allow',NULL,NULL),
-	 (5,'p','alice','data2','write','deny',NULL,NULL),
-	 (6,'g','alice','data2_admin',NULL,NULL,NULL,NULL);
+		INSERT INTO dev.potato_policies (id,pt,v0,haha,v2,v3,v4,v5) VALUES
+		 (1,'p','alice','data1','read','allow',NULL,NULL),
+		 (2,'p','bob','data2','write','allow',NULL,NULL),
+		 (3,'p','data2_admin','data2','read','allow',NULL,NULL),
+		 (4,'p','data2_admin','data2','write','allow',NULL,NULL),
+		 (5,'p','alice','data2','write','deny',NULL,NULL),
+		 (6,'g','alice','data2_admin',NULL,NULL,NULL,NULL);
+	  SELECT SETVAL('dev.potato_policies_id_seq', (SELECT MAX(id) + 1 FROM dev.potato_policies));
 	*/
 
 	/* Define custom matcher */
@@ -93,7 +94,7 @@ func main() {
 		return
 	}
 
-	// Check permissions
+	/* Check permissions */
 	found, err := enforcer.Enforce("alice", "data1", "read") // Should be TRUE
 	if err != nil {
 		log.Println("Error on enforcing", err)
@@ -107,4 +108,11 @@ func main() {
 		return
 	}
 	fmt.Println("Has access?", found)
+
+	/* Save policies to database */
+	err = enforcer.SavePolicy()
+	if err != nil {
+		log.Println("Error on saving enforcer rules to the database", err)
+		return
+	}
 }

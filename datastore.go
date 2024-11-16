@@ -25,12 +25,12 @@ type CasbinPolicy struct {
 	bun.BaseModel `bun:"casbin_policies,alias:t"`
 	ID            int    `bun:"id,pk,autoincrement"` // I'm not sure if 'autoincrement' will work as IDENTITY rather than SERIAL
 	PType         string `bun:"ptype,type:varchar(2),notnull,default:'p'"`
-	V0            string `bun:"v0,type:varchar(256)"`
-	V1            string `bun:"v1,type:varchar(256)"`
-	V2            string `bun:"v2,type:varchar(256)"`
-	V3            string `bun:"v3,type:varchar(256)"`
-	V4            string `bun:"v4,type:varchar(256)"`
-	V5            string `bun:"v5,type:varchar(256)"`
+	V0            string `bun:"v0,type:varchar(256),nullzero"`
+	V1            string `bun:"v1,type:varchar(256),nullzero"`
+	V2            string `bun:"v2,type:varchar(256),nullzero"`
+	V3            string `bun:"v3,type:varchar(256),nullzero"`
+	V4            string `bun:"v4,type:varchar(256),nullzero"`
+	V5            string `bun:"v5,type:varchar(256),nullzero"`
 }
 
 // MatcherOptions is for matching user defined columns to canonical Casbin columns
@@ -47,7 +47,7 @@ type MatcherOptions struct {
 	V5         string
 }
 
-func (cp CasbinPolicy) getRulesArray() []string {
+func (cp CasbinPolicy) getRuleDefinition() []string {
 	ans := make([]string, 0, 6)
 	if cp.V0 != "" {
 		ans = append(ans, cp.V0)
@@ -68,4 +68,30 @@ func (cp CasbinPolicy) getRulesArray() []string {
 		ans = append(ans, cp.V5)
 	}
 	return ans
+}
+
+// NewCasbinPolicyFrom creates CasbinPolicy object from well-defined policy type and rules
+func NewCasbinPolicyFrom(ptype string, rule []string) CasbinPolicy {
+	cp := CasbinPolicy{
+		PType: ptype,
+	}
+	for i := range rule {
+		val := rule[i]
+		// Rule is restricted by max 6 values in rule definition
+		switch i {
+		case 0:
+			cp.V0 = val
+		case 1:
+			cp.V1 = val
+		case 2:
+			cp.V2 = val
+		case 3:
+			cp.V3 = val
+		case 4:
+			cp.V4 = val
+		case 5:
+			cp.V5 = val
+		}
+	}
+	return cp
 }
