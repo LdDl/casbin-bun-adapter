@@ -15,7 +15,7 @@ var (
 	triggerTemplate = `
   create%[1]s trigger %[2]s_%[3]s_%[4]s
   after
-  insert or delete
+  insert or update or delete
   on
   %[2]s.%[3]s for each row execute function
   %[5]s.%[6]s();
@@ -44,11 +44,39 @@ var (
 					)::text
         );
       end if;
-      if TG_OP = 'DELETE' then
+      if TG_OP = 'UPDATE' then
         perform pg_notify(
           '%[4]s',
 					jsonb_build_object(
 						'event_type', '%[14]s',
+						'new', jsonb_build_object(
+							'id', new.%[5]s,
+							'ptype', new.%[6]s,
+							'v0', new.%[7]s,
+							'v1', new.%[8]s,
+							'v2', new.%[9]s,
+							'v3', new.%[10]s,
+							'v4', new.%[11]s,
+							'v5', new.%[12]s
+						),
+						'old', jsonb_build_object(
+							'id', old.%[5]s,
+							'ptype', old.%[6]s,
+							'v0', old.%[7]s,
+							'v1', old.%[8]s,
+							'v2', old.%[9]s,
+							'v3', old.%[10]s,
+							'v4', old.%[11]s,
+							'v5', old.%[12]s
+						)
+					)::text
+        );
+      end if;
+      if TG_OP = 'DELETE' then
+        perform pg_notify(
+          '%[4]s',
+					jsonb_build_object(
+						'event_type', '%[15]s',
 						'old', jsonb_build_object(
 							'id', old.%[5]s,
 							'ptype', old.%[6]s,
@@ -94,6 +122,7 @@ func (a *BunAdapter) PrepareTrigger() error {
 		a.matcher.V4,
 		a.matcher.V5,
 		EVENT_PAYLOAD_INSERT,
+		EVENT_PAYLOAD_UPDATE,
 		EVENT_PAYLOAD_DELETE,
 	)
 	ctx := context.Background()
@@ -155,8 +184,33 @@ func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) erro
 				}
 			}
 		case EVENT_PAYLOAD_UPDATE:
-			fmt.Println("Need to update")
-			// @todo
+			// Attention: since UPDATE method is implemented as cascade of Add/Remove policis functions then if something goes wrong in adding policies stage then previous removed policies won't roll back
+			ptypeOld := payloadData.Old.PType[:1]
+			switch ptypeOld {
+			case "p":
+				_, err := enforcer.RemovePolicy(payloadData.Old.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad old-updated policy. Policy is: '%s'", payloadStr)
+				}
+			case "g":
+				_, err := enforcer.RemoveGroupingPolicy(payloadData.Old.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad old-updated grouping policy. Policy is: '%s'", payloadStr)
+				}
+			}
+			ptypeNew := payloadData.New.PType[:1]
+			switch ptypeNew {
+			case "p":
+				_, err := enforcer.AddPolicy(payloadData.New.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad new-updated policy. Policy is: '%s'", payloadStr)
+				}
+			case "g":
+				_, err := enforcer.AddGroupingPolicy(payloadData.New.getRuleDefinition())
+				if err != nil {
+					return errors.Wrapf(err, "Bad new-updated grouping policy. Policy is: '%s'", payloadStr)
+				}
+			}
 		case EVENT_PAYLOAD_DELETE:
 			ptype := payloadData.Old.PType[:1]
 			switch ptype {

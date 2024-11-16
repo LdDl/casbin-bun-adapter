@@ -132,6 +132,7 @@ func main() {
 		}
 	}(enforcer, errCh)
 
+	/* Check delete trigger */
 	time.Sleep(100 * time.Millisecond)
 	_, err = dbConn.Exec("delete from dev.potato_policies where id = 5;")
 	if err != nil {
@@ -147,6 +148,7 @@ func main() {
 	}
 	fmt.Println("Has access after DENY rule delete?", found)
 
+	/* Check insert trigger */
 	time.Sleep(100 * time.Millisecond)
 	_, err = dbConn.Exec("INSERT INTO dev.potato_policies (id,pt,v0,haha,v2,v3,v4,v5) VALUES (5,'p','alice','data2','write','deny',NULL,NULL);")
 	if err != nil {
@@ -162,7 +164,35 @@ func main() {
 	}
 	fmt.Println("Has access after DENY rule insert?", found)
 
-	panic("Need to make example for update")
+	/* Check update trigger */
+	// Attention: since UPDATE method is implemented as cascade of Add/Remove policis functions then if something goes wrong in adding policies stage then previous removed policies won't roll back
+	time.Sleep(100 * time.Millisecond)
+	_, err = dbConn.Exec("update dev.potato_policies set v3 = 'allow' where id = 5;")
+	if err != nil {
+		log.Println("Error on executing SQL query", err)
+		return
+	}
+	time.Sleep(100 * time.Millisecond)
+	found, err = enforcer.Enforce("alice", "data2", "write") // Now should be TRUE due rule with ID '5' update to 'allow'
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access after DENY rule update (allow)?", found)
+	time.Sleep(100 * time.Millisecond)
+	_, err = dbConn.Exec("update dev.potato_policies set v3 = 'deny' where id = 5;")
+	if err != nil {
+		log.Println("Error on executing SQL query", err)
+		return
+	}
+	time.Sleep(100 * time.Millisecond)
+	found, err = enforcer.Enforce("alice", "data2", "write") // Now should be FALSE due rule with ID '5' update to 'false'
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access after DENY rule update (deny)?", found)
+
 	select {
 	case e := <-errCh:
 		log.Println("Err", e)
