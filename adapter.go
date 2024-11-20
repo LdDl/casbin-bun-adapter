@@ -146,7 +146,22 @@ func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
 
 // AddPolicy adds a policy rule to the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
-	return errors.New("not implemented")
+	ctx := context.Background()
+	newPolicy := NewCasbinPolicyFrom(ptype, rule)
+	values := map[string]interface{}{
+		a.matcher.PType: newPolicy.PType,
+		a.matcher.V0:    newPolicy.V0,
+		a.matcher.V1:    newPolicy.V1,
+		a.matcher.V2:    newPolicy.V2,
+		a.matcher.V3:    newPolicy.V3,
+		a.matcher.V4:    newPolicy.V4,
+		a.matcher.V5:    newPolicy.V5,
+	}
+	query := a.DB.NewInsert().
+		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+		Model(&values)
+	_, err := query.Exec(ctx)
+	return err
 }
 
 // RemovePolicy removes a policy rule from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
