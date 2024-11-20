@@ -42,7 +42,6 @@ func (a *BunAdapter) LoadPolicy(model model.Model) error {
 		ColumnExpr("? as v3", bun.Name(a.matcher.V3)).
 		ColumnExpr("? as v4", bun.Name(a.matcher.V4)).
 		ColumnExpr("? as v5", bun.Name(a.matcher.V5))
-	fmt.Println(query)
 	err := query.Scan(ctx)
 	if err != nil {
 		return err
@@ -54,7 +53,6 @@ func (a *BunAdapter) LoadPolicy(model model.Model) error {
 			return err
 		}
 	}
-	fmt.Println("Called load")
 	return nil
 }
 
@@ -159,6 +157,7 @@ func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 	}
 	query := a.DB.NewInsert().
 		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+		On("CONFLICT (?, ?, ?, ?, ?, ?, ?) DO NOTHING", bun.Name(a.matcher.PType), bun.Name(a.matcher.V0), bun.Name(a.matcher.V1), bun.Name(a.matcher.V2), bun.Name(a.matcher.V3), bun.Name(a.matcher.V4), bun.Name(a.matcher.V5)).
 		Model(&values)
 	_, err := query.Exec(ctx)
 	return err
@@ -166,7 +165,20 @@ func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 
 // RemovePolicy removes a policy rule from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error {
-	return errors.New("not implemented")
+	ctx := context.Background()
+	obsoletePolicty := NewCasbinPolicyFrom(ptype, rule)
+	query := a.DB.NewDelete().
+		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+		Where("? = ?", bun.Name(a.matcher.PType), obsoletePolicty.PType).
+		Where("? = ?", bun.Name(a.matcher.V0), obsoletePolicty.V0).
+		Where("? = ?", bun.Name(a.matcher.V1), obsoletePolicty.V1).
+		Where("? = ?", bun.Name(a.matcher.V2), obsoletePolicty.V2).
+		Where("? = ?", bun.Name(a.matcher.V3), obsoletePolicty.V3).
+		Where("? = ?", bun.Name(a.matcher.V4), obsoletePolicty.V4).
+		Where("? = ?", bun.Name(a.matcher.V5), obsoletePolicty.V5)
+	fmt.Println(query.String())
+	_, err := query.Exec(ctx)
+	return err
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave

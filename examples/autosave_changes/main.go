@@ -139,4 +139,20 @@ func main() {
 		return
 	}
 	fmt.Println("Has access?", found)
+
+	/* Check delete policy update */
+	time.Sleep(100 * time.Millisecond)
+	_, err = enforcer.RemovePolicy("alice", "data2", "write", "deny")
+	if err != nil {
+		log.Println("Error on removing policy from the enforcer", err)
+		return
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	found, err = enforcer.Enforce("alice", "data2", "write") // Should be TURE due existing deny rule has been deleted
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access?", found)
 }
