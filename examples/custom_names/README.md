@@ -1,0 +1,1 @@
+# Example of using adapter with custom column names

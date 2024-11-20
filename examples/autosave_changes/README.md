@@ -1,0 +1,1 @@
+# Example of using [AutoSave](#https://casbin.org/docs/adapters/#autosave) feature

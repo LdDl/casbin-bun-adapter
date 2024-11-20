@@ -17,10 +17,10 @@ import (
 func main() {
 	/* Just database connection parameters */
 	dbHost := "localhost"
-	dbPort := 35432
-	dbUser := "keeper"
-	dbPassword := "saas_keeper"
-	dbName := "saas_tsim"
+	dbPort := 5432
+	dbUser := "postgres"
+	dbPassword := "postgres"
+	dbName := "postgres"
 	var tlsConf *tls.Config = nil
 	appName := "example_custom_names"
 

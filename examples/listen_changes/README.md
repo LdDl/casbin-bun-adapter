@@ -1,0 +1,1 @@
+# Example of using PostgreSQL triggers to update enforcer in-memory data
