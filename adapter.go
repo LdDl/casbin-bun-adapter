@@ -2,7 +2,6 @@ package casbinbunadapter
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/casbin/casbin/v2/model"
 	"github.com/pkg/errors"
@@ -135,7 +134,6 @@ func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
 			if err != nil {
 				return errors.Wrapf(err, "Can't insert single policy. Policy: %+v", policy)
 			}
-			fmt.Println("done")
 		}
 		return nil
 	})
@@ -176,7 +174,6 @@ func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error
 		Where("? = ?", bun.Name(a.matcher.V3), obsoletePolicty.V3).
 		Where("? = ?", bun.Name(a.matcher.V4), obsoletePolicty.V4).
 		Where("? = ?", bun.Name(a.matcher.V5), obsoletePolicty.V5)
-	fmt.Println(query.String())
 	_, err := query.Exec(ctx)
 	return err
 }
