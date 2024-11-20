@@ -1,6 +1,5 @@
 
 # Casbin Bun Adapter for Postgres
-# w.i.p - first v0.0.1 release will be made after dealing with some AutoSave features and adapter tests
 
 ## Table of Contents
 - [About](#about)
