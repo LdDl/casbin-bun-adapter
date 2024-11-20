@@ -164,21 +164,52 @@ func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 // RemovePolicy removes a policy rule from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error {
 	ctx := context.Background()
-	obsoletePolicty := NewCasbinPolicyFrom(ptype, rule)
+	obsoletePolicy := NewCasbinPolicyFrom(ptype, rule)
 	query := a.DB.NewDelete().
 		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
-		Where("? = ?", bun.Name(a.matcher.PType), obsoletePolicty.PType).
-		Where("? = ?", bun.Name(a.matcher.V0), obsoletePolicty.V0).
-		Where("? = ?", bun.Name(a.matcher.V1), obsoletePolicty.V1).
-		Where("? = ?", bun.Name(a.matcher.V2), obsoletePolicty.V2).
-		Where("? = ?", bun.Name(a.matcher.V3), obsoletePolicty.V3).
-		Where("? = ?", bun.Name(a.matcher.V4), obsoletePolicty.V4).
-		Where("? = ?", bun.Name(a.matcher.V5), obsoletePolicty.V5)
+		Where("? = ?", bun.Name(a.matcher.PType), obsoletePolicy.PType).
+		Where("? = ?", bun.Name(a.matcher.V0), obsoletePolicy.V0).
+		Where("? = ?", bun.Name(a.matcher.V1), obsoletePolicy.V1).
+		Where("? = ?", bun.Name(a.matcher.V2), obsoletePolicy.V2).
+		Where("? = ?", bun.Name(a.matcher.V3), obsoletePolicy.V3).
+		Where("? = ?", bun.Name(a.matcher.V4), obsoletePolicy.V4).
+		Where("? = ?", bun.Name(a.matcher.V5), obsoletePolicy.V5)
 	_, err := query.Exec(ctx)
 	return err
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
-	return errors.New("not implemented")
+	ctx := context.Background()
+	query := a.DB.NewDelete().
+		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+		Where("? = ?", bun.Name(a.matcher.PType), ptype)
+	if v := extractRuleField(0, fieldIndex, fieldValues...); v != "" {
+		query = query.Where("? = ?", bun.Name(a.matcher.V0), v)
+	}
+	if v := extractRuleField(1, fieldIndex, fieldValues...); v != "" {
+		query = query.Where("? = ?", bun.Name(a.matcher.V1), v)
+	}
+	if v := extractRuleField(2, fieldIndex, fieldValues...); v != "" {
+		query = query.Where("? = ?", bun.Name(a.matcher.V2), v)
+	}
+	if v := extractRuleField(3, fieldIndex, fieldValues...); v != "" {
+		query = query.Where("? = ?", bun.Name(a.matcher.V3), v)
+	}
+	if v := extractRuleField(4, fieldIndex, fieldValues...); v != "" {
+		query = query.Where("? = ?", bun.Name(a.matcher.V4), v)
+	}
+	if v := extractRuleField(5, fieldIndex, fieldValues...); v != "" {
+		query = query.Where("? = ?", bun.Name(a.matcher.V5), v)
+	}
+	_, err := query.Exec(ctx)
+	return err
+}
+
+func extractRuleField(fieldArrayIdx, fieldIndex int, fieldValues ...string) string {
+	var val string
+	if fieldIndex <= fieldArrayIdx && fieldArrayIdx < fieldIndex+len(fieldValues) {
+		val = fieldValues[fieldArrayIdx-fieldIndex]
+	}
+	return val
 }

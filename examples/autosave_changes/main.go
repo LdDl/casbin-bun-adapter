@@ -17,10 +17,10 @@ import (
 func main() {
 	/* Just database connection parameters */
 	dbHost := "localhost"
-	dbPort := 5432
-	dbUser := "postgres"
-	dbPassword := "postgres"
-	dbName := "postgres"
+	dbPort := 35432
+	dbUser := "keeper"
+	dbPassword := "saas_keeper"
+	dbName := "saas_tsim"
 	var tlsConf *tls.Config = nil
 	appName := "example_custom_names"
 
@@ -150,6 +150,42 @@ func main() {
 
 	time.Sleep(100 * time.Millisecond)
 	found, err = enforcer.Enforce("alice", "data2", "write") // Should be TURE due existing deny rule has been deleted
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access?", found)
+
+	/* Check delete for filtered policies updates */
+	time.Sleep(100 * time.Millisecond)
+	_, err = enforcer.RemoveFilteredPolicy(0, "alice")
+	if err != nil {
+		log.Println("Error on removing filtered policy from the enforcer", err)
+		return
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	found, err = enforcer.Enforce("alice", "data1", "read") // Should be FALSE due we has deleted `alice` at all
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access?", found)
+
+	found, err = enforcer.Enforce("alice", "data2", "write") // Should be TRUE since we still know about `alice` in group `data2_admin`
+	if err != nil {
+		log.Println("Error on enforcing", err)
+		return
+	}
+	fmt.Println("Has access?", found)
+
+	time.Sleep(100 * time.Millisecond)
+	_, err = enforcer.RemoveFilteredGroupingPolicy(0, "alice")
+	if err != nil {
+		log.Println("Error on removing filtered policy from the enforcer", err)
+		return
+	}
+	found, err = enforcer.Enforce("alice", "data2", "write") // Should be FALSE we deleted `alice` completely from the enforcer
 	if err != nil {
 		log.Println("Error on enforcing", err)
 		return
