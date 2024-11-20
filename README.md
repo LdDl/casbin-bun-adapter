@@ -1,6 +1,8 @@
 
 # Casbin Bun Adapter for Postgres
 
+[![GoDoc](https://godoc.org/github.com/LdDl/casbin-bun-adapter?status.svg)](https://godoc.org/github.com/LdDl/casbin-bun-adapter) [![Go Report Card](https://goreportcard.com/badge/github.com/LdDl/casbin-bun-adapter)](https://goreportcard.com/report/github.com/LdDl/casbin-bun-adapter) [![GitHub tag](https://img.shields.io/github/tag/LdDl/casbin-bun-adapter.svg)](https://github.com/LdDl/casbin-bun-adapter/releases)
+
 ## Table of Contents
 - [About](#about)
 - [Installation](#installation)
@@ -15,6 +17,7 @@ This adapter supports listening to the policies update in database via [triggers
 
 [AutoSave](https://casbin.org/docs/adapters/#autosave) feature is implemented.
 
+Supported
 __Attentions/warnings__:
 
 - PostgreSQL is only supported database currently (since of heavy [trigger](https://www.postgresql.org/docs/8.1/triggers.html) feature usage)! As for other databases (MySQL, SQLite, Microsoft SQL Server) PRs are welcome.
