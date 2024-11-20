@@ -24,7 +24,7 @@ __Attentions/warnings__:
 
 - This repository is not pretend to be the best Casbin adapter, but it works for my use-cases. Check out others implementations [here](https://casbin.org/docs/adapters/#supported-adapters)
 
-- Do not combine [StartUpdatesListening](./trigger.go#L159) and [SavePolicy](./adapter.go#L158) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
+- Do not combine [StartUpdatesListening](./trigger.go#L159) and [SavePolicy](./adapter.go#L158) (or `AutoSave` feature) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
 
 - While using [StartUpdatesListening](./trigger.go#L159) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./trigger.go#L186) without rollback mechanism. That means if AddPolicy call fails on `*casbin.SyncedEnforcer` then there will not be any rollback for previously called RemovePolicy
 
