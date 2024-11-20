@@ -33,4 +33,44 @@ go get github.com/LdDl/casbin-bun-adapter
 ```
 
 ## Usage
-@todo
+
+There are three examples how to use it:
+1. Plain example without AutoSave or PostgreSQL triggers involed - [./examples/custom_names](./examples/custom_names/main.go)
+2. Example with using AutoSave feature - [./examples/autosave_changes](./examples/autosave_changes/main.go). Just add this line after `*casbin.Enforcer` is initialized:
+    ```go
+    // ...
+    enforcer.EnableAutoSave(true)
+    // ...
+    ```
+3. Example with using PostgreSQL (version 14.x and above) triggers feature - [./examples/listen_changes](./examples/listen_changes/main.go). It can be used with `*casbin.SyncedEnforcer` only:
+    ```go
+    // ...
+    trigger := casbinbunadapter.TriggerOptions{
+        Name:               "casbin_call_trigger",
+        FunctionName:       "update_policies_table",
+        FunctionSchemaName: "public",
+        FunctionReplace:    true,
+        TriggerReplace:     true, // Works only for PostgreSQL 14.x and above
+        ChannelName:        "CASBIN_UPDATE_MESSAGE",
+    }
+    adapter := casbinbunadapter.NewBunAdapter(
+        dbConn,
+        casbinbunadapter.WithMatcherOptions(matcher),
+        casbinbunadapter.WithTriggerOptions(trigger),
+    )
+    // ...
+    errCh := make(chan error)
+    go func(enf *casbin.SyncedEnforcer, errCh chan error) {
+        err = adapter.StartUpdatesListening(enf)
+        if err != nil {
+            log.Println("Error on database listener", err)
+            errCh <- err
+        }
+    }(enforcer, errCh)
+    // ...
+    select {
+	case e := <-errCh:
+		log.Println("Err", e)
+		return
+	}
+    ```
