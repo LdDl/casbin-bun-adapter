@@ -61,6 +61,7 @@ There are three examples how to use it:
         casbinbunadapter.WithTriggerOptions(trigger),
     )
     // ...
+	enforcer.EnableAutoSave(false) // Explicit disable
     errCh := make(chan error)
     go func(enf *casbin.SyncedEnforcer, errCh chan error) {
         err = adapter.StartUpdatesListening(enf)

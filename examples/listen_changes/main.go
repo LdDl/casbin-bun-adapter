@@ -123,6 +123,7 @@ func main() {
 	/* Start listening to database table updated. Make sure it has been started on prepare enforcer */
 	// When data in table changes (due INSERT/UPDATE operation) enforcer rules would be updated too
 	// Be careful when making application logic: make sure that you not going to use AutoSave/SavePolicy in casbin along with listening to database updates since it could cause infinity recursion
+	enforcer.EnableAutoSave(false) // Explicit disable
 	errCh := make(chan error)
 	go func(enf *casbin.SyncedEnforcer, errCh chan error) {
 		err = adapter.StartUpdatesListening(enf)
