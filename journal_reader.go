@@ -24,7 +24,7 @@ type JournalReaderOptions struct {
 	Timeout time.Duration
 	// MaxStaleness limits the age of policies used by EnforceCached.
 	MaxStaleness time.Duration
-	// BatchLimit limits the number of complete transactions read in one synchronization step.
+	// BatchLimit limits journal transactions per step. Large deltas or missing history reload a full snapshot.
 	BatchLimit int
 	// Configure runs on each new enforcer before its role links are built.
 	Configure func(*casbin.Enforcer) error
@@ -94,7 +94,7 @@ func (adapter *BunAdapter) NewJournalReader(ctx context.Context, schemaName stri
 	return reader, nil
 }
 
-// Sync reads a bounded group of complete transactions and publishes their result atomically.
+// Sync applies complete journal transactions or reloads a full snapshot for large deltas or missing history.
 // A failed attempt leaves the cursor unchanged and suspends authorization until recovery.
 func (reader *JournalReader) Sync(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, reader.options.Timeout)

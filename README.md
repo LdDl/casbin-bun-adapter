@@ -53,39 +53,66 @@ Rules support six fields (`v0` through `v5`, type `*string`). NULL marks unused 
 
 ## Transactional journal
 
-`BunAdapter` implements Casbin's `persist.Adapter`. `JournalReader` owns a separate authorization view; checks use its methods directly. Policies can be changed through SQL or a separate Casbin enforcer using `BunAdapter`. `SavePolicy` replaces the entire policy table with the writer's in-memory model.
+Policies can be written through SQL or a Casbin enforcer using `BunAdapter`. Authorization uses a separate `JournalReader`. `SavePolicy` replaces the entire policy table.
 
-Requires PostgreSQL 14+, a new journal schema and a permanent policy table without inheritance or partitions. Journal notifications prevent policy transactions from using `PREPARE TRANSACTION`. During migrations, the table owner installs the journal and grants access to an existing application role:
+Requires PostgreSQL 14+, a primary connection, unique policy rows and a permanent table without inheritance or partitions. Policy writers are serialized until commit; `PREPARE TRANSACTION` is unsupported.
+
+The table owner creates the journal in a new schema and grants journal access to an existing application role:
 
 ```go
 err := adapter.CreateJournal(ctx, "casbin_journal", "app_user")
+if err != nil {
+    return err
+}
 ```
 
-The application uses its separate database role:
+The application role also needs `SELECT` on the policy table. Using its connection:
 
 ```go
-reader, err := adapter.NewJournalReader(ctx, "casbin_journal", m, casbinbunadapter.JournalReaderOptions{Listen: true})
+reader, err := adapter.NewJournalReader(ctx, "casbin_journal", policyModel,
+    casbinbunadapter.JournalReaderOptions{Listen: true})
+if err != nil {
+    return err
+}
+
+allowed, err := reader.EnforceContext(ctx, "alice", "/reports", "read")
+if err != nil {
+    return err
+}
+if !allowed {
+    return errors.New("access denied")
+}
 ```
 
-After checking `err`, authorize through `reader.EnforceContext(ctx, ...)` or `reader.Enforce(...)`. Each call reads the journal position from the primary PostgreSQL database and catches up to that position before evaluating access. Later writes do not extend its target. Synchronization failures return `ErrJournalNotReady`; context errors remain available through `errors.Is`. The default timeout is five seconds, including waiting for another updater.
+Each check reads the journal position and synchronizes before deciding. Synchronization errors deny access with `ErrJournalNotReady`; the default timeout is five seconds. Small changes apply incrementally; large changes or missing history reload a consistent snapshot.
 
-`EnforceCached(...)` explicitly uses only local policies and can miss recent changes. It rejects synchronization errors, known unfinished catch-up and policies older than `MaxStaleness` (thirty seconds by default).
+A background worker receives notifications and removes journal history older than seven days:
 
-`Run(ctx)` maintains retention. `Listen: true` also enables LISTEN/NOTIFY over a dedicated pgdriver connection to PostgreSQL or a session pool. Transaction pooling is unsupported for LISTEN. Notifications carry no policies; connection setup and reconnection trigger journal catch-up. A probe checks the connection every thirty seconds. `Status()` exposes listener, synchronization and cleanup errors. Polling is off by default; `PollInterval` enables it. Strict checks work without `Run`, including after it stops.
+```go
+err := reader.Run(ctx)
+if err != nil && !errors.Is(err, context.Canceled) {
+    return err
+}
+```
 
-History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone.
+`Run` blocks until cancellation. The [runnable example](./examples/journal/README.md) includes startup and shutdown.
 
-Policy rows must be unique. Writers are serialized until commit. Standard models reuse two enforcers: changed policies and role links are applied to the idle copy before atomic publication. An occupied spare, reload, `TRUNCATE`, `Configure`, conditional roles, subject-priority effects or nonnumeric priorities require rebuilding. Reuse keeps an extra enforcer in memory; Casbin may reindex the affected policy set on removal. `Configure` callbacks must not share mutable enforcer state.
+| Option or method | Behavior |
+| --- | --- |
+| `Listen: true` | Dedicated pgdriver connection; direct PostgreSQL or session pooling. |
+| `PollInterval` | Optional polling, disabled by default. |
+| `EnforceCached` | No database request; may miss changes for up to `MaxStaleness` (default 30 seconds). |
+| `Status()` | Synchronization, listener and cleanup errors. |
+| `Sync(ctx)` | Manual synchronization; strict checks also work without `Run`. |
 
-For journals without cleanup support, the owner calls `EnableJournalCleanup(ctx, schema, appRole)` once. Manual scheduling uses `Sync(ctx)` and `PruneJournal(ctx, schema)`.
-
-For journals without notifications, the owner calls `EnableJournalNotifications(ctx, schema)`. New journals include them through `CreateJournal`.
+Transaction pooling cannot be used for LISTEN. Standard models keep a canonical policy set and two enforcers in memory. Custom setup belongs in `Configure`; mutable state must remain private to each enforcer.
 
 ## Tests
 
 ```shell
 go test ./...
 CASBIN_TEST_DSN='postgres://localhost/casbin_test?sslmode=disable' go test ./...
+CASBIN_TEST_DSN='postgres://localhost/casbin_test?sslmode=disable' go test -run '^$' -bench PostgresJournal -benchtime=3x -benchmem
 ```
 
 Database tests require PostgreSQL 15+ and schema creation permission in a dedicated test database. Journal privilege tests also require role creation and switching permissions. Without `CASBIN_TEST_DSN`, database tests are skipped.

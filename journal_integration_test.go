@@ -23,7 +23,7 @@ type journalTestChange struct {
 	NewPolicy json.RawMessage
 }
 
-func prepareJournalTest(t *testing.T, adapter *BunAdapter, readerRoles ...string) string {
+func prepareJournalTest(t testing.TB, adapter *BunAdapter, readerRoles ...string) string {
 	t.Helper()
 	schema := adapter.matcher.SchemaName + "_journal"
 	err := adapter.CreateJournal(context.Background(), schema, readerRoles...)

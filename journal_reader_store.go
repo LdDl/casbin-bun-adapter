@@ -10,6 +10,10 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// Large deltas use a snapshot to bound journal buffering and repeated Casbin policy reindexing.
+const journalChangeLimit = 1000
+const journalRemovalWorkLimit = 1000000
+
 type journalHead struct {
 	Revision int64
 	Identity int64
@@ -75,22 +79,27 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64, target *jou
 				var changes []journalChange
 				err = tx.NewSelect().TableExpr("?.changes", bun.Name(reader.schema)).
 					Column("revision", "operation", "old_policy", "new_policy").
-					Where("revision IN (?)", bun.In(revisions)).Order("revision", "id").Scan(ctx, &changes)
+					Where("revision IN (?)", bun.In(revisions)).Order("revision", "id").
+					Limit(journalChangeLimit+1).Scan(ctx, &changes)
 				if err != nil {
 					return err
 				}
-				position := 0
-				for _, revision := range revisions {
-					if position == len(changes) || changes[position].Revision != revision {
-						return fmt.Errorf("empty journal batch %d", revision)
+				// Never publish the limited prefix of a transaction. The snapshot and its head share this transaction.
+				reload = journalNeedsSnapshot(reader.model, changes)
+				if !reload {
+					position := 0
+					for _, revision := range revisions {
+						if position == len(changes) || changes[position].Revision != revision {
+							return fmt.Errorf("empty journal batch %d", revision)
+						}
+						for position < len(changes) && changes[position].Revision == revision {
+							position++
+						}
 					}
-					for position < len(changes) && changes[position].Revision == revision {
-						position++
-					}
+					update.Revision = revisions[len(revisions)-1]
+					update.Changes = changes
+					return nil
 				}
-				update.Revision = revisions[len(revisions)-1]
-				update.Changes = changes
-				return nil
 			}
 		}
 		var attached bool
@@ -125,6 +134,10 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64, target *jou
 		}
 		update.Model = copyJournalModel(reader.template)
 		for _, policy := range policies {
+			err = ctx.Err()
+			if err != nil {
+				return err
+			}
 			err = changeJournalPolicy(update.Model, policy, false)
 			if err != nil {
 				return err
@@ -134,4 +147,32 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64, target *jou
 		return nil
 	})
 	return update, err
+}
+
+func journalNeedsSnapshot(policyModel model.Model, changes []journalChange) bool {
+	if len(changes) > journalChangeLimit {
+		return true
+	}
+	policyCount := 0
+	for _, section := range []string{"p", "g"} {
+		for _, assertion := range policyModel[section] {
+			policyCount += len(assertion.Policy)
+		}
+	}
+	// Removing one rule can reindex an entire policy set. This conservative budget also covers updates.
+	remaining := journalRemovalWorkLimit
+	for _, change := range changes {
+		switch change.Operation {
+		case "UPDATE", "DELETE":
+			if policyCount > remaining {
+				return true
+			}
+			remaining -= policyCount
+		case "INSERT":
+			policyCount++
+		case "TRUNCATE":
+			return true
+		}
+	}
+	return false
 }

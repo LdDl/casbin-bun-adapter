@@ -28,7 +28,7 @@ e = some(where (p.eft == allow)) && !some(where (p.eft == deny))
 m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 `
 
-func prepareStorageTest(t *testing.T) *BunAdapter {
+func prepareStorageTest(t testing.TB) *BunAdapter {
 	t.Helper()
 	dsn := os.Getenv("CASBIN_TEST_DSN")
 	if dsn == "" {
@@ -70,7 +70,7 @@ func prepareStorageTest(t *testing.T) *BunAdapter {
 	return NewBunAdapter(db, WithMatcherOptions(MatcherOptions{SchemaName: schema, TableName: "policies"}))
 }
 
-func storageTestExec(t *testing.T, adapter *BunAdapter, query string, args ...interface{}) {
+func storageTestExec(t testing.TB, adapter *BunAdapter, query string, args ...interface{}) {
 	t.Helper()
 	_, err := adapter.Exec(query, args...)
 	if err != nil {
