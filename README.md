@@ -84,6 +84,21 @@ Rules support six fields (`v0` through `v5`, type `*string`). NULL marks unused 
 
 `NewCasbinPolicyFrom` returns `(CasbinPolicy, error)`. Empty filter values are wildcards; an all-wildcard filter removes every rule of the specified type.
 
+## Transactional journal
+
+`adapter.CreateJournal(ctx, "casbin_journal")` installs a journal once, as the policy table owner. It requires a new schema and PostgreSQL 14+ with a permanent, non-partitioned policy table without inheritance. Installation locks the policy table.
+
+`changes` records INSERT, UPDATE, DELETE and TRUNCATE; `batches` groups them by transaction. `state.revision` identifies the committed head. Rollbacks leave no records. Policy writers run sequentially until commit; long transactions delay other writers.
+
+Application roles must not own the policy table or journal, inherit owner privileges, or be superusers. Unexpected default grants abort installation. Reader permissions:
+
+```sql
+GRANT USAGE ON SCHEMA casbin_journal TO policy_reader;
+GRANT SELECT ON casbin_journal.state, casbin_journal.batches, casbin_journal.changes TO policy_reader;
+```
+
+The journal records changes without LISTEN or enforcer updates. Existing policies are not copied; automatic cleanup is absent. `StartUpdatesListening` operates independently.
+
 ## Tests
 
 ```shell
@@ -91,4 +106,4 @@ go test ./...
 CASBIN_TEST_DSN='postgres://localhost/casbin_test?sslmode=disable' go test ./...
 ```
 
-Database tests require PostgreSQL 15+ and schema creation permission in a dedicated test database. Without `CASBIN_TEST_DSN`, they are skipped.
+Database tests require PostgreSQL 15+ and schema creation permission in a dedicated test database. Journal privilege tests also require role creation and switching permissions. Without `CASBIN_TEST_DSN`, database tests are skipped.
