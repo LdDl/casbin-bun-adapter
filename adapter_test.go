@@ -3,6 +3,7 @@ package casbinbunadapter
 import (
 	"testing"
 
+	"github.com/casbin/casbin/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,18 +32,30 @@ func TestMatcherDefaults(t *testing.T) {
 	assert.Equal(t, defaultMatcherOpts.V5, adapter.matcher.V5)
 }
 
-// go test -run '^TestTriggerDefaults$' *.go -v
-func TestTriggerDefaults(t *testing.T) {
-	trigger := TriggerOptions{
-		FunctionName:   "user_fn",
-		ChannelName:    "custom_ch_name",
-		TriggerReplace: true,
+const namedPolicyTestModel = `[request_definition]
+r = sub, obj, act
+[policy_definition]
+p = sub, obj, act, eft
+p2 = sub, obj, act, eft
+[role_definition]
+g = _, _
+g2 = _, _
+[policy_effect]
+e = some(where (p.eft == allow)) && !some(where (p.eft == deny))
+[matchers]
+m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
+`
+
+func requireNamedRule(t *testing.T, enforcer *casbin.SyncedEnforcer, ptype string, rule []string, expected bool) {
+	t.Helper()
+	var found bool
+	var err error
+	if ptype[0] == 'p' {
+		found, err = enforcer.HasNamedPolicy(ptype, rule)
+	} else {
+		found, err = enforcer.HasNamedGroupingPolicy(ptype, rule)
 	}
-	adapter := NewBunAdapter(nil, WithTriggerOptions(trigger))
-	assert.Equal(t, defaultTriggerOpts.Name, adapter.trigger.Name)
-	assert.Equal(t, "user_fn", adapter.trigger.FunctionName) // Must be default
-	assert.Equal(t, defaultTriggerOpts.FunctionSchemaName, adapter.trigger.FunctionSchemaName)
-	assert.Equal(t, false, adapter.trigger.FunctionReplace)
-	assert.Equal(t, true, adapter.trigger.TriggerReplace)
-	assert.Equal(t, "custom_ch_name", adapter.trigger.ChannelName)
+	if err != nil || found != expected {
+		t.Fatalf("rule %q %#v: found=%v, want=%v, error=%v", ptype, rule, found, expected, err)
+	}
 }

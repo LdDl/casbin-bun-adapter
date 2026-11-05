@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v2/persist"
 	"github.com/pkg/errors"
 	"github.com/uptrace/bun"
 )
@@ -13,18 +14,17 @@ import (
 type BunAdapter struct {
 	*bun.DB
 	matcher MatcherOptions
-	trigger TriggerOptions
 }
+
+var _ persist.Adapter = (*BunAdapter)(nil)
 
 // NewBunAdapter returns new *BunAdapter. Connections to database must be provided. Other arguments are optional
 func NewBunAdapter(bunConnection *bun.DB, opts ...func(*BunAdapter)) *BunAdapter {
-	defaultMatcher := defaultMatcherOpts
-	defaultTrigger := defaultTriggerOpts
-	a := &BunAdapter{bunConnection, defaultMatcher, defaultTrigger}
+	adapter := &BunAdapter{DB: bunConnection, matcher: defaultMatcherOpts}
 	for _, opt := range opts {
-		opt(a)
+		opt(adapter)
 	}
-	return a
+	return adapter
 }
 
 // LoadPolicy loads all policy rules from the storage

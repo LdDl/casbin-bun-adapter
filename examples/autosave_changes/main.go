@@ -78,26 +78,7 @@ func main() {
 		V4:         "v4",
 		V5:         "v5",
 	}
-	trigger := casbinbunadapter.TriggerOptions{
-		Name:               "casbin_call_trigger",
-		FunctionName:       "update_policies_table",
-		FunctionSchemaName: "public",
-		FunctionReplace:    true,
-		TriggerReplace:     true, // Works only for PostgreSQL 14.x and above
-		ChannelName:        "CASBIN_UPDATE_MESSAGE",
-	}
-	/* Initialize adapter */
-	adapter := casbinbunadapter.NewBunAdapter(
-		dbConn,
-		casbinbunadapter.WithMatcherOptions(matcher),
-		casbinbunadapter.WithTriggerOptions(trigger),
-	)
-	/* Build trigger */
-	err := adapter.PrepareTrigger()
-	if err != nil {
-		log.Println("Error on preparing trigger", err)
-		return
-	}
+	adapter := casbinbunadapter.NewBunAdapter(dbConn, casbinbunadapter.WithMatcherOptions(matcher))
 
 	enforcer, err := casbin.NewSyncedEnforcer("examples/custom_names/rbac_deny.conf", adapter)
 	if err != nil {
@@ -121,7 +102,6 @@ func main() {
 	fmt.Println("Has access?", found)
 
 	/* Enable autosave. Start listening changes to the enforcer and update database tables */
-	// Be careful when making application logic: make sure that you not going to use `StartUpdatesListening` in casbin along with listening to database updates since it could cause infinity recursion
 	enforcer.EnableAutoSave(true)
 
 	/* Check add policy update */
