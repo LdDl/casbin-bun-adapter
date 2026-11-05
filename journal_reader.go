@@ -14,12 +14,16 @@ import (
 // ErrJournalNotReady indicates that authorization data cannot currently be trusted.
 var ErrJournalNotReady = errors.New("policy journal is not synchronized")
 
-// JournalReaderOptions controls polling and the maximum age of authorization data.
+// JournalReaderOptions controls synchronization and explicitly cached checks.
 type JournalReaderOptions struct {
+	// PollInterval enables background synchronization when positive. Zero disables polling.
 	PollInterval time.Duration
-	Timeout      time.Duration
+	// Timeout bounds database synchronization, including waiting for another updater.
+	Timeout time.Duration
+	// MaxStaleness limits the age of policies used by EnforceCached.
 	MaxStaleness time.Duration
-	BatchLimit   int
+	// BatchLimit limits the number of complete transactions read in one synchronization step.
+	BatchLimit int
 	// Configure runs on each new enforcer before its role links are built.
 	Configure func(*casbin.Enforcer) error
 }
@@ -41,7 +45,7 @@ type JournalReader struct {
 	template model.Model
 	model    model.Model
 	identity int64
-	syncMu   sync.Mutex
+	syncGate chan struct{}
 	runMu    sync.Mutex
 	viewMu   sync.RWMutex
 	enforcer *casbin.Enforcer
@@ -57,9 +61,6 @@ func (adapter *BunAdapter) NewJournalReader(ctx context.Context, schemaName stri
 	if len(m["r"]) == 0 || len(m["p"]) == 0 || len(m["e"]) == 0 || len(m["m"]) == 0 {
 		return nil, fmt.Errorf("journal reader requires a complete Casbin model")
 	}
-	if options.PollInterval == 0 {
-		options.PollInterval = time.Second
-	}
 	if options.Timeout == 0 {
 		options.Timeout = 5 * time.Second
 	}
@@ -69,29 +70,60 @@ func (adapter *BunAdapter) NewJournalReader(ctx context.Context, schemaName stri
 	if options.BatchLimit == 0 {
 		options.BatchLimit = 100
 	}
-	if options.PollInterval <= 0 || options.Timeout <= 0 || options.MaxStaleness <= options.PollInterval || options.BatchLimit < 1 {
+	if options.PollInterval < 0 || options.Timeout <= 0 || options.MaxStaleness <= 0 || options.BatchLimit < 1 {
 		return nil, fmt.Errorf("invalid journal reader options")
 	}
 	template := copyJournalModel(m)
 	template.ClearPolicy()
-	r := &JournalReader{adapter: adapter, schema: schemaName, options: options, template: template}
-	err = r.Sync(ctx)
+	reader := &JournalReader{
+		adapter:  adapter,
+		schema:   schemaName,
+		options:  options,
+		template: template,
+		syncGate: make(chan struct{}, 1),
+	}
+	err = reader.Sync(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return r, nil
+	return reader, nil
 }
 
 // Sync reads a bounded group of complete transactions and publishes their result atomically.
 // A failed attempt leaves the cursor unchanged and suspends authorization until recovery.
 func (reader *JournalReader) Sync(ctx context.Context) error {
-	reader.syncMu.Lock()
-	defer reader.syncMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, reader.options.Timeout)
 	defer cancel()
+	err := reader.acquireSync(ctx)
+	if err != nil {
+		return err
+	}
+	defer reader.releaseSync()
+	return reader.synchronize(ctx, nil)
+}
+
+func (reader *JournalReader) acquireSync(ctx context.Context) error {
+	select {
+	case reader.syncGate <- struct{}{}:
+		err := ctx.Err()
+		if err != nil {
+			reader.releaseSync()
+		}
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (reader *JournalReader) releaseSync() {
+	<-reader.syncGate
+}
+
+// synchronize requires exclusive ownership of syncGate.
+func (reader *JournalReader) synchronize(ctx context.Context, target *journalHead) error {
 	started := time.Now()
 	state := reader.Status()
-	update, err := reader.read(ctx, state.Revision)
+	update, err := reader.read(ctx, state.Revision, target)
 	if err != nil {
 		return reader.recordError(err)
 	}
@@ -125,24 +157,46 @@ func (reader *JournalReader) Sync(ctx context.Context) error {
 
 // Reload replaces local policies and the cursor with a fresh, consistent database snapshot.
 func (reader *JournalReader) Reload(ctx context.Context) error {
-	reader.syncMu.Lock()
-	// The next Sync starts from the policy table, even if a retained event is invalid.
+	ctx, cancel := context.WithTimeout(ctx, reader.options.Timeout)
+	defer cancel()
+	err := reader.acquireSync(ctx)
+	if err != nil {
+		return err
+	}
+	defer reader.releaseSync()
+	// Reload the policy table even if a retained journal event is invalid.
+	reader.viewMu.Lock()
 	reader.identity = 0
-	reader.syncMu.Unlock()
-	return reader.Sync(ctx)
+	reader.viewMu.Unlock()
+	return reader.synchronize(ctx, nil)
 }
 
-// Run polls until cancellation. Failed attempts remain visible in Status and Enforce.
+// Run maintains journal retention and optionally polls when PollInterval is positive.
+// Strict checks do not require Run and continue working after it stops.
 func (reader *JournalReader) Run(ctx context.Context) error {
 	if !reader.runMu.TryLock() {
 		return fmt.Errorf("journal reader is already running")
 	}
 	defer reader.runMu.Unlock()
-	ticker := time.NewTicker(reader.options.PollInterval)
+	interval := reader.options.PollInterval
+	if interval == 0 || interval > time.Minute {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	var cleanedAt time.Time
+	var polledAt time.Time
 	for {
-		_ = reader.Sync(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if reader.options.PollInterval > 0 && time.Since(polledAt) >= reader.options.PollInterval {
+			_ = reader.Sync(ctx)
+			status := reader.Status()
+			if status.Error != nil || status.Revision >= status.Head {
+				polledAt = time.Now()
+			}
+		}
 		if ctx.Err() == nil && time.Since(cleanedAt) >= time.Minute {
 			cleanupCtx, cancel := context.WithTimeout(ctx, reader.options.Timeout)
 			removed, cleanupErr := reader.adapter.PruneJournal(cleanupCtx, reader.schema)
@@ -155,32 +209,16 @@ func (reader *JournalReader) Run(ctx context.Context) error {
 			}
 		}
 		status := reader.Status()
-		if ctx.Err() == nil && status.Error == nil && status.Revision < status.Head {
+		if reader.options.PollInterval > 0 && ctx.Err() == nil && status.Error == nil && status.Revision < status.Head {
+			polledAt = time.Time{}
 			continue
 		}
 		select {
 		case <-ctx.Done():
-			reader.recordError(ctx.Err())
 			return ctx.Err()
 		case <-ticker.C:
 		}
 	}
-}
-
-// Enforce denies authorization with an error while synchronization is unhealthy or stale.
-func (reader *JournalReader) Enforce(values ...interface{}) (bool, error) {
-	reader.viewMu.RLock()
-	defer reader.viewMu.RUnlock()
-	if reader.status.Error != nil {
-		return false, fmt.Errorf("%w: %w", ErrJournalNotReady, reader.status.Error)
-	}
-	if reader.status.Revision < reader.status.Head {
-		return false, fmt.Errorf("%w: catching up with committed policies", ErrJournalNotReady)
-	}
-	if reader.enforcer == nil || time.Since(reader.status.LastSync) > reader.options.MaxStaleness {
-		return false, fmt.Errorf("%w: policies exceeded maximum age", ErrJournalNotReady)
-	}
-	return reader.enforcer.Enforce(values...)
 }
 
 // Status returns the current cursor, synchronization time and errors.

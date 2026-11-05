@@ -29,7 +29,13 @@ type journalUpdate struct {
 	Model    model.Model
 }
 
-func (reader *JournalReader) read(ctx context.Context, cursor int64) (journalUpdate, error) {
+func (reader *JournalReader) readHead(ctx context.Context) (journalHead, error) {
+	var head journalHead
+	err := reader.adapter.NewRaw("SELECT revision, tableoid::bigint AS identity FROM ?.state WHERE singleton", bun.Name(reader.schema)).Scan(ctx, &head)
+	return head, err
+}
+
+func (reader *JournalReader) read(ctx context.Context, cursor int64, target *journalHead) (journalUpdate, error) {
 	var update journalUpdate
 	err := reader.adapter.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}, func(ctx context.Context, tx bun.Tx) error {
 		var head journalHead
@@ -38,14 +44,22 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64) (journalUpd
 			return err
 		}
 		update = journalUpdate{Identity: head.Identity, Head: head.Revision, Revision: cursor}
+		limit := head.Revision
+		if target != nil {
+			if head.Identity != target.Identity || head.Revision < target.Revision {
+				return fmt.Errorf("policy journal changed during synchronization")
+			}
+			limit = target.Revision
+		}
 		reload := reader.identity != head.Identity || cursor > head.Revision
-		if !reload && cursor == head.Revision {
+		if !reload && cursor >= limit {
 			return nil
 		}
 		if !reload {
 			var revisions []int64
 			err = tx.NewSelect().TableExpr("?.batches", bun.Name(reader.schema)).
-				Column("revision").Where("revision > ?", cursor).Order("revision").Limit(reader.options.BatchLimit).Scan(ctx, &revisions)
+				Column("revision").Where("revision > ? AND revision <= ?", cursor, limit).
+				Order("revision").Limit(reader.options.BatchLimit).Scan(ctx, &revisions)
 			if err != nil {
 				return err
 			}
@@ -53,7 +67,7 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64) (journalUpd
 			reload = len(revisions) == 0 || revisions[0] != cursor+1
 			if !reload {
 				for i, revision := range revisions {
-					if revision != cursor+int64(i)+1 || revision > head.Revision {
+					if revision != cursor+int64(i)+1 || revision > limit {
 						return fmt.Errorf("non-contiguous policy journal")
 					}
 				}

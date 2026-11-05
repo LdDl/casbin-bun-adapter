@@ -23,9 +23,9 @@ func newJournalTestReader(t *testing.T, adapter *BunAdapter, schema string, opti
 	return r
 }
 
-func requireJournalDecision(t *testing.T, r *JournalReader, allowed bool) {
+func requireJournalCachedDecision(t *testing.T, r *JournalReader, allowed bool) {
 	t.Helper()
-	actual, err := r.Enforce("alice", "data", "read")
+	actual, err := r.EnforceCached("alice", "data", "read")
 	require.NoError(t, err)
 	require.Equal(t, allowed, actual)
 }
@@ -36,7 +36,7 @@ func TestPostgresJournalReaderChangesAndRestart(t *testing.T) {
 	err := adapter.AddPolicy("g", "g", []string{"alice", "readers"})
 	require.NoError(t, err)
 	r := newJournalTestReader(t, adapter, schema, JournalReaderOptions{BatchLimit: 1})
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 	storageTestExec(t, adapter, `BEGIN;
 		INSERT INTO ?.policies (ptype,v0,v1,v2,v3) VALUES ('p','readers','data','read','allow');
 		INSERT INTO ?.policies (ptype,v0,v1) VALUES ('g2','alice','');
@@ -44,7 +44,7 @@ func TestPostgresJournalReaderChangesAndRestart(t *testing.T) {
 		COMMIT`, bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.SchemaName))
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, true)
+	requireJournalCachedDecision(t, r, true)
 	found, err := r.model.HasPolicyEx("g", "g2", []string{"alice", ""})
 	require.NoError(t, err)
 	require.True(t, found)
@@ -52,14 +52,14 @@ func TestPostgresJournalReaderChangesAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 	revision := r.Status().Revision
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, revision, r.Status().Revision)
 	restarted := newJournalTestReader(t, adapter, schema, JournalReaderOptions{})
 	require.Equal(t, revision, restarted.Status().Revision)
-	requireJournalDecision(t, restarted, false)
+	requireJournalCachedDecision(t, restarted, false)
 	storageTestExec(t, adapter, "TRUNCATE ?.policies", bun.Name(adapter.matcher.SchemaName))
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
@@ -77,12 +77,12 @@ func TestPostgresJournalReaderRejectsPartialAndInvalidState(t *testing.T) {
 	require.NoError(t, err)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	allowed, err := r.Enforce("alice", "data", "read")
+	allowed, err := r.EnforceCached("alice", "data", "read")
 	require.False(t, allowed)
 	require.ErrorIs(t, err, ErrJournalNotReady)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, true)
+	requireJournalCachedDecision(t, r, true)
 	revision := r.Status().Revision
 	storageTestExec(t, adapter, `BEGIN;
 		DELETE FROM ?.policies WHERE ptype='p';
@@ -92,13 +92,13 @@ func TestPostgresJournalReaderRejectsPartialAndInvalidState(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, revision, r.Status().Revision)
 	require.Len(t, r.model["p"]["p"].Policy, 1)
-	allowed, err = r.Enforce("alice", "data", "read")
+	allowed, err = r.EnforceCached("alice", "data", "read")
 	require.False(t, allowed)
 	require.ErrorIs(t, err, ErrJournalNotReady)
 	storageTestExec(t, adapter, `DELETE FROM ?.policies WHERE ptype='p'`, bun.Name(adapter.matcher.SchemaName))
 	err = r.Reload(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 }
 
 func TestPostgresJournalReaderConfigurationAndAtomicPublish(t *testing.T) {
@@ -125,7 +125,7 @@ func TestPostgresJournalReaderConfigurationAndAtomicPublish(t *testing.T) {
 	require.NoError(t, err)
 	r, err := adapter.NewJournalReader(context.Background(), schema, m, options)
 	require.NoError(t, err)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 	storageTestExec(t, adapter, `BEGIN;
 		DELETE FROM ?.policies WHERE v3='deny';
 		INSERT INTO ?.policies (ptype,v0,v1,v2,v3) VALUES ('p','alice','data','read','deny');
@@ -140,12 +140,12 @@ func TestPostgresJournalReaderConfigurationAndAtomicPublish(t *testing.T) {
 		t.Fatal("candidate build did not start")
 	}
 	for i := 0; i < 100; i++ {
-		requireJournalDecision(t, r, false)
+		requireJournalCachedDecision(t, r, false)
 	}
 	close(resume)
 	require.NoError(t, <-done)
 	block.Store(false)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 	revision := r.Status().Revision
 	err = adapter.RemovePolicy("p", "p", []string{"alice", "data", "read", "deny"})
 	require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestPostgresJournalReaderConfigurationAndAtomicPublish(t *testing.T) {
 	fail.Store(false)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, true)
+	requireJournalCachedDecision(t, r, true)
 }
 
 type journalSnapshotHook struct {
@@ -205,10 +205,10 @@ func TestPostgresJournalReaderInitialSnapshotHasNoGap(t *testing.T) {
 	result := <-done
 	require.NoError(t, result.Error)
 	require.Equal(t, int64(0), result.Reader.Status().Revision)
-	requireJournalDecision(t, result.Reader, false)
+	requireJournalCachedDecision(t, result.Reader, false)
 	err = result.Reader.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, result.Reader, true)
+	requireJournalCachedDecision(t, result.Reader, true)
 }
 
 func TestPostgresJournalReaderCancellationAndStaleness(t *testing.T) {
@@ -219,15 +219,15 @@ func TestPostgresJournalReaderCancellationAndStaleness(t *testing.T) {
 	cancel()
 	err := r.Sync(ctx)
 	require.ErrorIs(t, err, context.Canceled)
-	allowed, err := r.Enforce("alice", "data", "read")
+	allowed, err := r.EnforceCached("alice", "data", "read")
 	require.False(t, allowed)
-	require.ErrorIs(t, err, ErrJournalNotReady)
+	require.NoError(t, err)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
 	r.viewMu.Lock()
 	r.status.LastSync = time.Now().Add(-time.Minute)
 	r.viewMu.Unlock()
-	allowed, err = r.Enforce("alice", "data", "read")
+	allowed, err = r.EnforceCached("alice", "data", "read")
 	require.False(t, allowed)
 	require.ErrorIs(t, err, ErrJournalNotReady)
 	err = r.Run(ctx)
@@ -251,7 +251,7 @@ func TestPostgresJournalCleanupAndRecovery(t *testing.T) {
 	require.Equal(t, int64(2), changes[0].Revision)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 	require.Equal(t, int64(2), r.Status().Revision)
 	storageTestExec(t, adapter, "UPDATE ?.batches SET created_at = now() - interval '8 days'", bun.Name(schema))
 	removed, err := adapter.PruneJournal(context.Background(), schema)
@@ -259,12 +259,12 @@ func TestPostgresJournalCleanupAndRecovery(t *testing.T) {
 	require.Equal(t, 1, removed)
 	require.Empty(t, readJournalTestChanges(t, adapter, schema))
 	restarted := newJournalTestReader(t, adapter, schema, JournalReaderOptions{})
-	requireJournalDecision(t, restarted, false)
+	requireJournalCachedDecision(t, restarted, false)
 	err = adapter.RemovePolicy("p", "p", []string{"alice", "data", "read", "deny"})
 	require.NoError(t, err)
 	err = restarted.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, restarted, true)
+	requireJournalCachedDecision(t, restarted, true)
 }
 
 func TestPostgresJournalCleanupSkipsWriterAndKeepsPrefix(t *testing.T) {
@@ -309,24 +309,24 @@ func TestPostgresJournalReaderRunRecoversAndStops(t *testing.T) {
 	err := adapter.AddPolicy("p", "p", []string{"alice", "data", "read", "allow"})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		allowed, err := r.Enforce("alice", "data", "read")
+		allowed, err := r.EnforceCached("alice", "data", "read")
 		return err == nil && allowed
 	}, 3*time.Second, 10*time.Millisecond)
 	storageTestExec(t, adapter, "ALTER TABLE ?.state RENAME TO unavailable_state", bun.Name(schema))
 	require.Eventually(t, func() bool { return r.Status().Error != nil }, 3*time.Second, 10*time.Millisecond)
-	allowed, err := r.Enforce("alice", "data", "read")
+	allowed, err := r.EnforceCached("alice", "data", "read")
 	require.False(t, allowed)
 	require.ErrorIs(t, err, ErrJournalNotReady)
 	storageTestExec(t, adapter, "ALTER TABLE ?.unavailable_state RENAME TO state", bun.Name(schema))
 	require.Eventually(t, func() bool {
-		allowed, err := r.Enforce("alice", "data", "read")
+		allowed, err := r.EnforceCached("alice", "data", "read")
 		return err == nil && allowed
 	}, 3*time.Second, 10*time.Millisecond)
 	cancel()
 	require.ErrorIs(t, <-done, context.Canceled)
 	allowed, err = r.Enforce("alice", "data", "read")
-	require.False(t, allowed)
-	require.ErrorIs(t, err, ErrJournalNotReady)
+	require.True(t, allowed)
+	require.NoError(t, err)
 }
 
 func TestPostgresJournalCleanupInstallationAndLimit(t *testing.T) {
@@ -370,10 +370,10 @@ func TestPostgresJournalReaderConditionalRoles(t *testing.T) {
 		return nil
 	}})
 	require.NoError(t, err)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 	err = adapter.AddPolicy("p", "p", []string{"nobody", "data", "read", "allow"})
 	require.NoError(t, err)
 	err = r.Sync(context.Background())
 	require.NoError(t, err)
-	requireJournalDecision(t, r, false)
+	requireJournalCachedDecision(t, r, false)
 }

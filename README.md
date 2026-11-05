@@ -106,11 +106,11 @@ The application uses its separate database role:
 reader, err := adapter.NewJournalReader(ctx, "casbin_journal", m, casbinbunadapter.JournalReaderOptions{})
 ```
 
-After checking `err`, start `reader.Run(ctx)` in a managed goroutine and authorize through `reader.Enforce(...)`.
+After checking `err`, authorize through `reader.EnforceContext(ctx, ...)` or `reader.Enforce(...)`. Each call reads the journal position from the primary PostgreSQL database and catches up to that position before evaluating access. Later writes do not extend its target. Synchronization failures return `ErrJournalNotReady`; context errors remain available through `errors.Is`. The default timeout is five seconds, including waiting for another updater.
 
-- Defaults: polling every second, five-second synchronization timeout, thirty-second maximum policy age.
-- Errors, unfinished catch-up and stale policies return `ErrJournalNotReady`. `Status()` exposes errors.
-- History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone.
+`EnforceCached(...)` explicitly uses only local policies and can miss recent changes. It rejects synchronization errors, known unfinished catch-up and policies older than `MaxStaleness` (thirty seconds by default).
+
+`Run(ctx)` maintains history retention. Background policy polling is disabled by default; a positive `PollInterval` enables it. Strict checks work without `Run`, including after it stops. History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone. `Status()` exposes synchronization and cleanup errors.
 
 Policy rows must be unique. Writers are serialized until commit; atomic publication rebuilds the model and role graph in memory. `Configure` callbacks must not share mutable enforcer state.
 
