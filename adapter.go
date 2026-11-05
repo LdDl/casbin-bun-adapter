@@ -61,7 +61,10 @@ func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
 	if err != nil {
 		return err
 	}
-	ruleDef := policy.getRuleDefinition()
+	ruleDef, err := policy.getRuleDefinition()
+	if err != nil {
+		return err
+	}
 	found, err := model.HasPolicyEx(policy.PType[:1], policy.PType, ruleDef)
 	if err != nil {
 		return errors.Wrapf(err, "Can't validate single policy. Policy: '%+v'", policy)
@@ -97,7 +100,11 @@ func (a *BunAdapter) SavePolicy(model model.Model) error {
 				if err != nil {
 					return err
 				}
-				policies = append(policies, NewCasbinPolicyFrom(ptype, ruleDef))
+				policy, err := NewCasbinPolicyFrom(ptype, ruleDef)
+				if err != nil {
+					return err
+				}
+				policies = append(policies, policy)
 			}
 		}
 	}
@@ -117,7 +124,11 @@ func (a *BunAdapter) SavePolicy(model model.Model) error {
 				if err != nil {
 					return err
 				}
-				policies = append(policies, NewCasbinPolicyFrom(ptype, ruleDef))
+				policy, err := NewCasbinPolicyFrom(ptype, ruleDef)
+				if err != nil {
+					return err
+				}
+				policies = append(policies, policy)
 			}
 		}
 	}
@@ -176,7 +187,10 @@ func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 		return err
 	}
 	ctx := context.Background()
-	newPolicy := NewCasbinPolicyFrom(ptype, rule)
+	newPolicy, err := NewCasbinPolicyFrom(ptype, rule)
+	if err != nil {
+		return err
+	}
 	values := map[string]interface{}{
 		a.matcher.PType: newPolicy.PType,
 		a.matcher.V0:    newPolicy.V0,
@@ -209,8 +223,7 @@ func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error
 		if i < len(rule) {
 			query = query.Where("? = ?", bun.Name(column), rule[i])
 		} else {
-			// Unused fields can be NULL in SQL-created rows or empty in adapter-created rows.
-			query = query.Where("(? IS NULL OR ? = '')", bun.Name(column), bun.Name(column))
+			query = query.Where("? IS NULL", bun.Name(column))
 		}
 	}
 	_, err = query.Exec(ctx)

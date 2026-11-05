@@ -168,63 +168,9 @@ func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) erro
 		if err != nil {
 			return errors.Wrapf(err, "Can't read payload from database. Payload is: '%s'", payloadStr)
 		}
-		switch payloadData.EventType {
-		case EVENT_PAYLOAD_INSERT:
-			ptype := payloadData.New.PType[:1]
-			switch ptype {
-			case "p":
-				_, err := enforcer.AddPolicy(payloadData.New.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad new policy. Policy is: '%s'", payloadStr)
-				}
-			case "g":
-				_, err := enforcer.AddGroupingPolicy(payloadData.New.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad new grouping policy. Policy is: '%s'", payloadStr)
-				}
-			}
-		case EVENT_PAYLOAD_UPDATE:
-			// Attention: since UPDATE method is implemented as cascade of Add/Remove policis functions then if something goes wrong in adding policies stage then previous removed policies won't roll back
-			ptypeOld := payloadData.Old.PType[:1]
-			switch ptypeOld {
-			case "p":
-				_, err := enforcer.RemovePolicy(payloadData.Old.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad old-updated policy. Policy is: '%s'", payloadStr)
-				}
-			case "g":
-				_, err := enforcer.RemoveGroupingPolicy(payloadData.Old.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad old-updated grouping policy. Policy is: '%s'", payloadStr)
-				}
-			}
-			ptypeNew := payloadData.New.PType[:1]
-			switch ptypeNew {
-			case "p":
-				_, err := enforcer.AddPolicy(payloadData.New.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad new-updated policy. Policy is: '%s'", payloadStr)
-				}
-			case "g":
-				_, err := enforcer.AddGroupingPolicy(payloadData.New.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad new-updated grouping policy. Policy is: '%s'", payloadStr)
-				}
-			}
-		case EVENT_PAYLOAD_DELETE:
-			ptype := payloadData.Old.PType[:1]
-			switch ptype {
-			case "p":
-				_, err := enforcer.RemovePolicy(payloadData.Old.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad old policy. Policy is: '%s'", payloadStr)
-				}
-			case "g":
-				_, err := enforcer.RemoveGroupingPolicy(payloadData.Old.getRuleDefinition())
-				if err != nil {
-					return errors.Wrapf(err, "Bad old grouping policy. Policy is: '%s'", payloadStr)
-				}
-			}
+		err = applyPolicyChange(enforcer, payloadData)
+		if err != nil {
+			return errors.Wrap(err, "Can't apply policy change")
 		}
 	}
 

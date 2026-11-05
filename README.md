@@ -24,9 +24,9 @@ __Attentions/warnings__:
 
 - This repository is not pretend to be the best Casbin adapter, but it works for my use-cases. Check out others implementations [here](https://casbin.org/docs/adapters/#supported-adapters)
 
-- Do not combine [StartUpdatesListening](./trigger.go#L159) and [SavePolicy](./adapter.go#L158) (or `AutoSave` feature) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
+- Do not combine [StartUpdatesListening](./trigger.go) and [SavePolicy](./adapter.go) (or `AutoSave` feature) since it could cause infinite recursion. You should either update Casbin in-memory object with database table updates (via trigger) or update database table due Casbin in-memory updates (via direct method calls) but not both techniques same time.
 
-- While using [StartUpdatesListening](./trigger.go#L159) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./trigger.go#L186) without rollback mechanism. That means if AddPolicy call fails on `*casbin.SyncedEnforcer` then there will not be any rollback for previously called RemovePolicy
+- While using [StartUpdatesListening](./trigger.go) _UPDATE_ operation on table calls [RemovePolicy/AddPolicy sequentially](./policy_change.go) without rollback mechanism. That means if AddPolicy call fails on `*casbin.SyncedEnforcer` then there will not be any rollback for previously called RemovePolicy
 
 
 ## Installation
@@ -80,7 +80,9 @@ There are three examples how to use it:
 
 ## Storage
 
-Rules support up to six fields (`v0` through `v5`). Invalid arguments return an error before writing. Empty filter values act as wildcards; an all-wildcard filter removes every rule of the specified policy type.
+Rules support six fields (`v0` through `v5`, type `*string`). NULL marks unused columns; empty strings retain their positions. Existing empty padding requires normalization to NULL according to the model.
+
+`NewCasbinPolicyFrom` returns `(CasbinPolicy, error)`. Empty filter values are wildcards; an all-wildcard filter removes every rule of the specified type.
 
 ## Tests
 

@@ -1,6 +1,8 @@
 package casbinbunadapter
 
 import (
+	"fmt"
+
 	"github.com/uptrace/bun"
 )
 
@@ -23,14 +25,14 @@ import (
 // );
 type CasbinPolicy struct {
 	bun.BaseModel `bun:"casbin_policies,alias:t"`
-	ID            int    `bun:"id,pk,autoincrement" json:"id"` // I'm not sure if 'autoincrement' will work as IDENTITY rather than SERIAL
-	PType         string `bun:"ptype,type:varchar(2),notnull,default:'p'" json:"ptype"`
-	V0            string `bun:"v0,type:varchar(256),nullzero" json:"v0"`
-	V1            string `bun:"v1,type:varchar(256),nullzero" json:"v1"`
-	V2            string `bun:"v2,type:varchar(256),nullzero" json:"v2"`
-	V3            string `bun:"v3,type:varchar(256),nullzero" json:"v3"`
-	V4            string `bun:"v4,type:varchar(256),nullzero" json:"v4"`
-	V5            string `bun:"v5,type:varchar(256),nullzero" json:"v5"`
+	ID            int     `bun:"id,pk,autoincrement" json:"id"`
+	PType         string  `bun:"ptype,type:varchar(2),notnull,default:'p'" json:"ptype"`
+	V0            *string `bun:"v0,type:varchar(256)" json:"v0"`
+	V1            *string `bun:"v1,type:varchar(256)" json:"v1"`
+	V2            *string `bun:"v2,type:varchar(256)" json:"v2"`
+	V3            *string `bun:"v3,type:varchar(256)" json:"v3"`
+	V4            *string `bun:"v4,type:varchar(256)" json:"v4"`
+	V5            *string `bun:"v5,type:varchar(256)" json:"v5"`
 }
 
 // MatcherOptions is for matching user defined columns to canonical Casbin columns
@@ -63,51 +65,45 @@ type TriggerOptions struct {
 	ChannelName string
 }
 
-func (cp CasbinPolicy) getRuleDefinition() []string {
-	ans := make([]string, 0, 6)
-	if cp.V0 != "" {
-		ans = append(ans, cp.V0)
+func (cp CasbinPolicy) getRuleDefinition() ([]string, error) {
+	err := validatePolicyType("", cp.PType)
+	if err != nil {
+		return nil, err
 	}
-	if cp.V1 != "" {
-		ans = append(ans, cp.V1)
+	fields := []*string{cp.V0, cp.V1, cp.V2, cp.V3, cp.V4, cp.V5}
+	rule := make([]string, 0, len(fields))
+	ended := false
+	for _, value := range fields {
+		if value == nil {
+			ended = true
+			continue
+		}
+		if ended {
+			return nil, fmt.Errorf("policy %q contains a value after an unused NULL field", cp.PType)
+		}
+		rule = append(rule, *value)
 	}
-	if cp.V2 != "" {
-		ans = append(ans, cp.V2)
+	err = validatePolicy(cp.PType[:1], cp.PType, rule)
+	if err != nil {
+		return nil, err
 	}
-	if cp.V3 != "" {
-		ans = append(ans, cp.V3)
-	}
-	if cp.V4 != "" {
-		ans = append(ans, cp.V4)
-	}
-	if cp.V5 != "" {
-		ans = append(ans, cp.V5)
-	}
-	return ans
+	return rule, nil
 }
 
-// NewCasbinPolicyFrom creates CasbinPolicy object from well-defined policy type and rules
-func NewCasbinPolicyFrom(ptype string, rule []string) CasbinPolicy {
-	cp := CasbinPolicy{
-		PType: ptype,
+// NewCasbinPolicyFrom preserves empty values and leaves unused columns NULL.
+func NewCasbinPolicyFrom(ptype string, rule []string) (CasbinPolicy, error) {
+	err := validatePolicyType("", ptype)
+	if err != nil {
+		return CasbinPolicy{}, err
 	}
-	for i := range rule {
-		val := rule[i]
-		// Rule is restricted by max 6 values in rule definition
-		switch i {
-		case 0:
-			cp.V0 = val
-		case 1:
-			cp.V1 = val
-		case 2:
-			cp.V2 = val
-		case 3:
-			cp.V3 = val
-		case 4:
-			cp.V4 = val
-		case 5:
-			cp.V5 = val
-		}
+	err = validatePolicy(ptype[:1], ptype, rule)
+	if err != nil {
+		return CasbinPolicy{}, err
 	}
-	return cp
+	policy := CasbinPolicy{PType: ptype}
+	fields := []**string{&policy.V0, &policy.V1, &policy.V2, &policy.V3, &policy.V4, &policy.V5}
+	for i, value := range rule {
+		*fields[i] = &value
+	}
+	return policy, nil
 }

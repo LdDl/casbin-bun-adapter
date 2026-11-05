@@ -135,7 +135,7 @@ func TestPostgresRevocationSurvivesReload(t *testing.T) {
 	}
 }
 
-func TestPostgresDeleteUnusedFields(t *testing.T) {
+func TestPostgresDeleteMatchesExactRule(t *testing.T) {
 	adapter := prepareStorageTest(t)
 	storageTestExec(t, adapter, `INSERT INTO ?.policies (ptype,v0,v1,v2,v3,v4,v5) VALUES
 		('p','alice','data','read','allow',NULL,NULL),
@@ -146,7 +146,7 @@ func TestPostgresDeleteUnusedFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storageTestCount(t, adapter, 1)
+	storageTestCount(t, adapter, 3)
 	err = adapter.AddPolicy("p", "p", []string{"bob", "data", "read", "allow"})
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestPostgresDeleteUnusedFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storageTestCount(t, adapter, 1)
+	storageTestCount(t, adapter, 3)
 }
 
 func TestPostgresFilterPreservesOtherPolicies(t *testing.T) {
@@ -207,4 +207,95 @@ func TestPostgresSaveRollback(t *testing.T) {
 	if err != nil || subject != "original" {
 		t.Fatalf("original policy lost: %q, %v", subject, err)
 	}
+}
+
+func TestPostgresEmptyFieldsAndNamedRules(t *testing.T) {
+	adapter := prepareStorageTest(t)
+	m, err := model.NewModelFromString(namedPolicyTestModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enforcer, err := casbin.NewSyncedEnforcer(m, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []ruleRoundTripCase{
+		{ptype: "p2", rule: []string{"alice", "", "read", "allow"}},
+		{ptype: "p2", rule: []string{"bob", "data", "read", ""}},
+		{ptype: "g2", rule: []string{"alice", ""}},
+		{ptype: "g2", rule: []string{"bob", "readers", ""}},
+	}
+	for _, item := range cases {
+		if item.ptype[0] == 'p' {
+			_, err = enforcer.AddNamedPolicy(item.ptype, item.rule)
+		} else {
+			_, err = enforcer.AddNamedGroupingPolicy(item.ptype, item.rule)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = enforcer.LoadPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range cases {
+		requireNamedRule(t, enforcer, item.ptype, item.rule, true)
+		requireNamedRule(t, enforcer, item.ptype[:1], item.rule, false)
+	}
+	err = enforcer.SavePolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = enforcer.LoadPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range cases {
+		requireNamedRule(t, enforcer, item.ptype, item.rule, true)
+	}
+	var storedCorrectly bool
+	err = adapter.NewRaw(`SELECT v3 = '' AND v4 IS NULL AND v5 IS NULL
+		FROM ?.policies WHERE ptype='p2' AND v0='bob'`, bun.Name(adapter.matcher.SchemaName)).Scan(context.Background(), &storedCorrectly)
+	if err != nil || !storedCorrectly {
+		t.Fatalf("empty value or NULL padding lost: %v, %v", storedCorrectly, err)
+	}
+	err = adapter.AddPolicy("g", "g2", []string{"alice", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storageTestCount(t, adapter, len(cases))
+	storageTestExec(t, adapter, `INSERT INTO ?.policies (ptype,v0,v1,v2) VALUES ('p2','invalid',NULL,'read')`, bun.Name(adapter.matcher.SchemaName))
+	err = enforcer.LoadPolicy()
+	if err == nil {
+		t.Fatal("invalid NULL gap loaded")
+	}
+	requireNamedRule(t, enforcer, "p2", cases[0].rule, true)
+}
+
+func TestPostgresDeleteKeepsExplicitEmptyTail(t *testing.T) {
+	adapter := prepareStorageTest(t)
+	err := adapter.AddPolicy("g", "g2", []string{"alice", "readers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = adapter.AddPolicy("g", "g2", []string{"alice", "readers", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = adapter.RemovePolicy("g", "g2", []string{"alice", "readers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storageTestCount(t, adapter, 1)
+	var emptyTail bool
+	err = adapter.NewRaw(`SELECT v2 = '' AND v3 IS NULL FROM ?.policies`, bun.Name(adapter.matcher.SchemaName)).Scan(context.Background(), &emptyTail)
+	if err != nil || !emptyTail {
+		t.Fatalf("longer rule deleted or changed: %v, %v", emptyTail, err)
+	}
+	err = adapter.RemovePolicy("g", "g2", []string{"alice", "readers", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storageTestCount(t, adapter, 0)
 }
