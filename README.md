@@ -86,16 +86,11 @@ Rules support six fields (`v0` through `v5`, type `*string`). NULL marks unused 
 
 ## Transactional journal
 
-`adapter.CreateJournal(ctx, "casbin_journal")` installs a journal once, as the policy table owner. It requires a new schema and PostgreSQL 14+ with a permanent, non-partitioned policy table without inheritance. Installation locks the policy table.
+`adapter.CreateJournal(ctx, "casbin_journal", "app_user")` installs a journal once, as the policy table owner. It requires a new schema and PostgreSQL 14+ with a permanent, non-partitioned policy table without inheritance. Installation locks the policy table.
 
 `changes` records INSERT, UPDATE, DELETE and TRUNCATE; `batches` groups them by transaction. `state.revision` identifies the committed head. Rollbacks leave no records. Policy writers run sequentially until commit; long transactions delay other writers.
 
-Application roles must not own the policy table or journal, inherit owner privileges, or be superusers. Unexpected default grants abort installation. Reader permissions:
-
-```sql
-GRANT USAGE ON SCHEMA casbin_journal TO policy_reader;
-GRANT SELECT ON casbin_journal.state, casbin_journal.batches, casbin_journal.changes TO policy_reader;
-```
+Pass existing application database role names after the schema name. The installer grants journal read access automatically and rejects owner or administrative roles. Without role names, no reader grants are issued. Roles, passwords and policy table permissions remain environment configuration; unexpected default grants abort installation.
 
 The journal records changes without LISTEN or enforcer updates. Existing policies are not copied; automatic cleanup is absent. `StartUpdatesListening` operates independently.
 

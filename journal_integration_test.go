@@ -23,10 +23,10 @@ type journalTestChange struct {
 	NewPolicy json.RawMessage
 }
 
-func prepareJournalTest(t *testing.T, adapter *BunAdapter) string {
+func prepareJournalTest(t *testing.T, adapter *BunAdapter, readerRoles ...string) string {
 	t.Helper()
 	schema := adapter.matcher.SchemaName + "_journal"
-	err := adapter.CreateJournal(context.Background(), schema)
+	err := adapter.CreateJournal(context.Background(), schema, readerRoles...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, err := adapter.Exec("DROP SCHEMA ? CASCADE", bun.Name(schema))
@@ -251,17 +251,13 @@ func execJournalTestAsRole(adapter *BunAdapter, role, query string, args ...inte
 
 func TestPostgresJournalPrivileges(t *testing.T) {
 	adapter := prepareStorageTest(t)
-	schema := prepareJournalTest(t, adapter)
 	role := prepareJournalTestRole(t, adapter)
+	schema := prepareJournalTest(t, adapter, role)
 	storageTestExec(t, adapter, "GRANT USAGE ON SCHEMA ? TO ?", bun.Name(adapter.matcher.SchemaName), bun.Name(role))
 	storageTestExec(t, adapter, "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ?.policies TO ?", bun.Name(adapter.matcher.SchemaName), bun.Name(role))
 	err := execJournalTestAsRole(adapter, role, `INSERT INTO ?.policies (ptype,v0,v1) VALUES ('g','alice','readers')`, bun.Name(adapter.matcher.SchemaName))
 	require.NoError(t, err)
 	requireJournalTestHead(t, adapter, schema, 1)
-	err = execJournalTestAsRole(adapter, role, "SELECT * FROM ?.changes", bun.Name(schema))
-	require.Error(t, err)
-	storageTestExec(t, adapter, "GRANT USAGE ON SCHEMA ? TO ?", bun.Name(schema), bun.Name(role))
-	storageTestExec(t, adapter, "GRANT SELECT ON ?.state, ?.batches, ?.changes TO ?", bun.Name(schema), bun.Name(schema), bun.Name(schema), bun.Name(role))
 	err = execJournalTestAsRole(adapter, role, "SELECT * FROM ?.changes", bun.Name(schema))
 	require.NoError(t, err)
 	queries := []string{

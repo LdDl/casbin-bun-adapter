@@ -10,23 +10,32 @@ import (
 )
 
 type journalSource struct {
-	OID         int64
-	Kind        string
-	Persistence string
-	Partition   bool
-	Inherited   bool
+	OID            int64
+	Kind           string
+	Persistence    string
+	Partition      bool
+	Inherited      bool
+	OwnerOID       int64
+	SchemaOwnerOID int64
 }
 
 // CreateJournal installs a transactional change journal in a new, dedicated schema.
 // It requires the policy table owner or a migration role with equivalent privileges.
+// Optional reader roles receive schema usage and SELECT on the journal tables.
 // Journal creation does not start synchronization with an enforcer.
-func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string) error {
+func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, readerRoles ...string) error {
 	names := []string{schemaName, a.matcher.SchemaName, a.matcher.TableName, a.matcher.PType,
 		a.matcher.V0, a.matcher.V1, a.matcher.V2, a.matcher.V3, a.matcher.V4, a.matcher.V5}
 	for _, name := range names {
 		err := validateJournalIdentifier(name)
 		if err != nil {
 			return err
+		}
+	}
+	for _, role := range readerRoles {
+		err := validateJournalIdentifier(role)
+		if err != nil {
+			return fmt.Errorf("invalid journal reader role: %w", err)
 		}
 	}
 	columns := names[3:]
@@ -45,7 +54,8 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string) error
 		}
 		var source journalSource
 		err = tx.NewRaw(`
-			SELECT c.oid, c.relkind AS kind, c.relpersistence AS persistence, c.relispartition AS partition,
+			SELECT c.oid, c.relowner AS owner_oid, n.nspowner AS schema_owner_oid,
+				c.relkind AS kind, c.relpersistence AS persistence, c.relispartition AS partition,
 				EXISTS (SELECT FROM pg_catalog.pg_inherits i WHERE i.inhrelid = c.oid OR i.inhparent = c.oid) AS inherited
 			FROM pg_catalog.pg_class c
 			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -131,7 +141,10 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string) error
 			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName),
 			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName),
 			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName))
-		return err
+		if err != nil {
+			return err
+		}
+		return grantJournalReaders(ctx, tx, schemaName, source, readerRoles)
 	})
 	if err != nil {
 		return fmt.Errorf("create policy journal: %w", err)
