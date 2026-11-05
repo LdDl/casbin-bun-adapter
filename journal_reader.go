@@ -48,7 +48,8 @@ type JournalReader struct {
 	syncGate chan struct{}
 	runMu    sync.Mutex
 	viewMu   sync.RWMutex
-	enforcer *casbin.Enforcer
+	view     *journalView
+	spare    *journalView
 	status   JournalStatus
 }
 
@@ -127,9 +128,9 @@ func (reader *JournalReader) synchronize(ctx context.Context, target *journalHea
 	if err != nil {
 		return reader.recordError(err)
 	}
-	var candidate *casbin.Enforcer
-	if update.Model != nil {
-		candidate, err = reader.buildEnforcer(update.Model)
+	var publication *journalPublication
+	if update.Model != nil || len(update.Changes) != 0 {
+		publication, err = reader.preparePublication(ctx, update)
 		if err != nil {
 			return reader.recordError(err)
 		}
@@ -138,10 +139,24 @@ func (reader *JournalReader) synchronize(ctx context.Context, target *journalHea
 	if err != nil {
 		return reader.recordError(err)
 	}
+	if publication != nil {
+		// Validation and private enforcer updates precede changes to the canonical model.
+		err = applyJournalModelMutations(publication.Model, publication.Mutations)
+		if err != nil {
+			reader.viewMu.Lock()
+			reader.identity = 0
+			reader.viewMu.Unlock()
+			return reader.recordError(err)
+		}
+	}
 	reader.viewMu.Lock()
-	if candidate != nil {
-		reader.enforcer = candidate
-		reader.model = update.Model
+	if publication != nil {
+		reader.view = publication.View
+		reader.spare = publication.Spare
+		if reader.spare != nil {
+			reader.spare.replay = publication.Replay
+		}
+		reader.model = publication.Model
 		reader.identity = update.Identity
 		reader.status.Revision = update.Revision
 	}

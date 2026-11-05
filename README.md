@@ -112,7 +112,7 @@ After checking `err`, authorize through `reader.EnforceContext(ctx, ...)` or `re
 
 `Run(ctx)` maintains history retention. Background policy polling is disabled by default; a positive `PollInterval` enables it. Strict checks work without `Run`, including after it stops. History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone. `Status()` exposes synchronization and cleanup errors.
 
-Policy rows must be unique. Writers are serialized until commit; atomic publication rebuilds the model and role graph in memory. `Configure` callbacks must not share mutable enforcer state.
+Policy rows must be unique. Writers are serialized until commit. Standard models reuse two enforcers: changed policies and role links are applied to the idle copy before atomic publication. An occupied spare, reload, `TRUNCATE`, `Configure`, conditional roles, subject-priority effects or nonnumeric priorities require rebuilding. Reuse keeps an extra enforcer in memory; Casbin may reindex the affected policy set on removal. `Configure` callbacks must not share mutable enforcer state.
 
 For journals without cleanup support, the owner calls `EnableJournalCleanup(ctx, schema, appRole)` once. Manual scheduling uses `Sync(ctx)` and `PruneJournal(ctx, schema)`.
 

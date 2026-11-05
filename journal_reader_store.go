@@ -27,6 +27,7 @@ type journalUpdate struct {
 	Head     int64
 	Revision int64
 	Model    model.Model
+	Changes  []journalChange
 }
 
 func (reader *JournalReader) readHead(ctx context.Context) (journalHead, error) {
@@ -78,21 +79,17 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64, target *jou
 				if err != nil {
 					return err
 				}
-				update.Model = copyJournalModel(reader.model)
 				position := 0
 				for _, revision := range revisions {
 					if position == len(changes) || changes[position].Revision != revision {
 						return fmt.Errorf("empty journal batch %d", revision)
 					}
 					for position < len(changes) && changes[position].Revision == revision {
-						err = applyJournalChange(update.Model, changes[position])
-						if err != nil {
-							return fmt.Errorf("journal batch %d: %w", revision, err)
-						}
 						position++
 					}
 				}
 				update.Revision = revisions[len(revisions)-1]
+				update.Changes = changes
 				return nil
 			}
 		}

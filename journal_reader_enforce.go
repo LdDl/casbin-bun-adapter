@@ -31,8 +31,14 @@ func (reader *JournalReader) EnforceContext(ctx context.Context, values ...inter
 	}
 	reader.viewMu.RLock()
 	ready := reader.hasRevision(target)
-	enforcer := reader.enforcer
+	view := reader.view
+	if ready {
+		view.users.Add(1)
+	}
 	reader.viewMu.RUnlock()
+	if ready {
+		defer view.users.Add(-1)
+	}
 	err = ctx.Err()
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrJournalNotReady, err)
@@ -40,7 +46,7 @@ func (reader *JournalReader) EnforceContext(ctx context.Context, values ...inter
 	if !ready {
 		return false, fmt.Errorf("%w: authorization view changed during synchronization", ErrJournalNotReady)
 	}
-	allowed, err := enforcer.Enforce(values...)
+	allowed, err := view.enforcer.Enforce(values...)
 	contextErr := ctx.Err()
 	if contextErr != nil {
 		return false, fmt.Errorf("%w: %w", ErrJournalNotReady, contextErr)
@@ -53,7 +59,7 @@ func (reader *JournalReader) EnforceContext(ctx context.Context, values ...inter
 
 // hasRevision requires at least a read lock on viewMu.
 func (reader *JournalReader) hasRevision(target journalHead) bool {
-	return reader.enforcer != nil && reader.status.Error == nil &&
+	return reader.view != nil && reader.status.Error == nil &&
 		reader.identity == target.Identity && reader.status.Revision >= target.Revision
 }
 
@@ -97,13 +103,17 @@ func (reader *JournalReader) EnforceCached(values ...interface{}) (bool, error) 
 		err = fmt.Errorf("%w: %w", ErrJournalNotReady, reader.status.Error)
 	case reader.status.Revision < reader.status.Head:
 		err = fmt.Errorf("%w: catching up with committed policies", ErrJournalNotReady)
-	case reader.enforcer == nil || reader.identity == 0 || time.Since(reader.status.LastSync) > reader.options.MaxStaleness:
+	case reader.view == nil || reader.identity == 0 || time.Since(reader.status.LastSync) > reader.options.MaxStaleness:
 		err = fmt.Errorf("%w: policies exceeded maximum age", ErrJournalNotReady)
 	}
-	enforcer := reader.enforcer
+	view := reader.view
+	if err == nil {
+		view.users.Add(1)
+	}
 	reader.viewMu.RUnlock()
 	if err != nil {
 		return false, err
 	}
-	return enforcer.Enforce(values...)
+	defer view.users.Add(-1)
+	return view.enforcer.Enforce(values...)
 }
