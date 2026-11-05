@@ -2,6 +2,7 @@ package casbinbunadapter
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/casbin/casbin/v2/model"
 	"github.com/pkg/errors"
@@ -56,6 +57,10 @@ func (a *BunAdapter) LoadPolicy(model model.Model) error {
 }
 
 func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
+	err := validatePolicyType("", policy.PType)
+	if err != nil {
+		return err
+	}
 	ruleDef := policy.getRuleDefinition()
 	found, err := model.HasPolicyEx(policy.PType[:1], policy.PType, ruleDef)
 	if err != nil {
@@ -79,7 +84,19 @@ func (a *BunAdapter) SavePolicy(model model.Model) error {
 	/* Collect policies and rules */
 	if p, ok := model["p"]; ok {
 		for ptype, ast := range p {
+			err := validatePolicyType("p", ptype)
+			if err != nil {
+				return err
+			}
 			for _, ruleDef := range ast.Policy {
+				err := validatePolicy(ptype[:1], ptype, ruleDef)
+				if err != nil {
+					return err
+				}
+				_, err = model.HasPolicyEx(ptype[:1], ptype, ruleDef)
+				if err != nil {
+					return err
+				}
 				policies = append(policies, NewCasbinPolicyFrom(ptype, ruleDef))
 			}
 		}
@@ -87,7 +104,19 @@ func (a *BunAdapter) SavePolicy(model model.Model) error {
 
 	if g, ok := model["g"]; ok {
 		for ptype, ast := range g {
+			err := validatePolicyType("g", ptype)
+			if err != nil {
+				return err
+			}
 			for _, ruleDef := range ast.Policy {
+				err := validatePolicy(ptype[:1], ptype, ruleDef)
+				if err != nil {
+					return err
+				}
+				_, err = model.HasPolicyEx(ptype[:1], ptype, ruleDef)
+				if err != nil {
+					return err
+				}
 				policies = append(policies, NewCasbinPolicyFrom(ptype, ruleDef))
 			}
 		}
@@ -142,6 +171,10 @@ func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
 
 // AddPolicy adds a policy rule to the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
+	err := validatePolicy(sec, ptype, rule)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	newPolicy := NewCasbinPolicyFrom(ptype, rule)
 	values := map[string]interface{}{
@@ -157,29 +190,49 @@ func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
 		On("CONFLICT (?, ?, ?, ?, ?, ?, ?) DO NOTHING", bun.Name(a.matcher.PType), bun.Name(a.matcher.V0), bun.Name(a.matcher.V1), bun.Name(a.matcher.V2), bun.Name(a.matcher.V3), bun.Name(a.matcher.V4), bun.Name(a.matcher.V5)).
 		Model(&values)
-	_, err := query.Exec(ctx)
+	_, err = query.Exec(ctx)
 	return err
 }
 
 // RemovePolicy removes a policy rule from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error {
+	err := validatePolicy(sec, ptype, rule)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
-	obsoletePolicy := NewCasbinPolicyFrom(ptype, rule)
 	query := a.DB.NewDelete().
 		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
-		Where("? = ?", bun.Name(a.matcher.PType), obsoletePolicy.PType).
-		Where("? = ?", bun.Name(a.matcher.V0), obsoletePolicy.V0).
-		Where("? = ?", bun.Name(a.matcher.V1), obsoletePolicy.V1).
-		Where("? = ?", bun.Name(a.matcher.V2), obsoletePolicy.V2).
-		Where("? = ?", bun.Name(a.matcher.V3), obsoletePolicy.V3).
-		Where("? = ?", bun.Name(a.matcher.V4), obsoletePolicy.V4).
-		Where("? = ?", bun.Name(a.matcher.V5), obsoletePolicy.V5)
-	_, err := query.Exec(ctx)
+		Where("? = ?", bun.Name(a.matcher.PType), ptype)
+	columns := []string{a.matcher.V0, a.matcher.V1, a.matcher.V2, a.matcher.V3, a.matcher.V4, a.matcher.V5}
+	for i, column := range columns {
+		if i < len(rule) {
+			query = query.Where("? = ?", bun.Name(column), rule[i])
+		} else {
+			// Unused fields can be NULL in SQL-created rows or empty in adapter-created rows.
+			query = query.Where("(? IS NULL OR ? = '')", bun.Name(column), bun.Name(column))
+		}
+	}
+	_, err = query.Exec(ctx)
 	return err
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
 func (a *BunAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+	if sec != "p" && sec != "g" {
+		return fmt.Errorf("policy section must be p or g")
+	}
+	err := validatePolicyType(sec, ptype)
+	if err != nil {
+		return err
+	}
+	if fieldIndex < 0 || fieldIndex >= 6 || len(fieldValues) > 6-fieldIndex {
+		return fmt.Errorf("policy filter exceeds fields v0 through v5")
+	}
+	err = validatePolicyValues(fieldValues)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	query := a.DB.NewDelete().
 		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
@@ -202,7 +255,7 @@ func (a *BunAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex i
 	if v := extractRuleField(5, fieldIndex, fieldValues...); v != "" {
 		query = query.Where("? = ?", bun.Name(a.matcher.V5), v)
 	}
-	_, err := query.Exec(ctx)
+	_, err = query.Exec(ctx)
 	return err
 }
 
