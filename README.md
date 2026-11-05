@@ -77,3 +77,16 @@ There are three examples how to use it:
 		return
 	}
     ```
+
+## Storage
+
+Rules support up to six fields (`v0` through `v5`). Invalid arguments return an error before writing. Empty filter values act as wildcards; an all-wildcard filter removes every rule of the specified policy type.
+
+## Tests
+
+```shell
+go test ./...
+CASBIN_TEST_DSN='postgres://localhost/casbin_test?sslmode=disable' go test ./...
+```
+
+Database tests require PostgreSQL 15+ and schema creation permission in a dedicated test database. Without `CASBIN_TEST_DSN`, they are skipped.
