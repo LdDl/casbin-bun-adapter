@@ -4,9 +4,13 @@
 [![GoDoc](https://godoc.org/github.com/LdDl/casbin-bun-adapter?status.svg)](https://godoc.org/github.com/LdDl/casbin-bun-adapter) [![Go Report Card](https://goreportcard.com/badge/github.com/LdDl/casbin-bun-adapter)](https://goreportcard.com/report/github.com/LdDl/casbin-bun-adapter) [![GitHub tag](https://img.shields.io/github/tag/LdDl/casbin-bun-adapter.svg)](https://github.com/LdDl/casbin-bun-adapter/releases)
 
 ## Table of Contents
+
 - [About](#about)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Storage](#storage)
+- [Transactional journal](#transactional-journal)
+- [Tests](#tests)
 
 
 ## About
@@ -30,6 +34,7 @@ __Attentions/warnings__:
 
 
 ## Installation
+
 ```shell
 go get github.com/LdDl/casbin-bun-adapter
 ```
@@ -37,6 +42,7 @@ go get github.com/LdDl/casbin-bun-adapter
 ## Usage
 
 There are three examples how to use it:
+
 1. Plain example without AutoSave or PostgreSQL triggers involed - [./examples/custom_names](./examples/custom_names/main.go)
 2. Example with using AutoSave feature - [./examples/autosave_changes](./examples/autosave_changes/main.go). Just add this line after `*casbin.Enforcer` is initialized:
     ```go
@@ -52,7 +58,8 @@ There are three examples how to use it:
         FunctionName:       "update_policies_table",
         FunctionSchemaName: "public",
         FunctionReplace:    true,
-        TriggerReplace:     true, // Works only for PostgreSQL 14.x and above
+        // Works only for PostgreSQL 14.x and above
+        TriggerReplace:     true,
         ChannelName:        "CASBIN_UPDATE_MESSAGE",
     }
     adapter := casbinbunadapter.NewBunAdapter(
@@ -61,7 +68,8 @@ There are three examples how to use it:
         casbinbunadapter.WithTriggerOptions(trigger),
     )
     // ...
-	enforcer.EnableAutoSave(false) // Explicit disable
+    // Explicit disable
+    enforcer.EnableAutoSave(false)
     errCh := make(chan error)
     go func(enf *casbin.SyncedEnforcer, errCh chan error) {
         err = adapter.StartUpdatesListening(enf)
@@ -86,13 +94,29 @@ Rules support six fields (`v0` through `v5`, type `*string`). NULL marks unused 
 
 ## Transactional journal
 
-`adapter.CreateJournal(ctx, "casbin_journal", "app_user")` installs a journal once, as the policy table owner. It requires a new schema and PostgreSQL 14+ with a permanent, non-partitioned policy table without inheritance. Installation locks the policy table.
+Requires PostgreSQL 14+, a new journal schema and a permanent policy table without inheritance or partitions. During migrations, the table owner installs the journal and grants access to an existing application role:
 
-`changes` records INSERT, UPDATE, DELETE and TRUNCATE; `batches` groups them by transaction. `state.revision` identifies the committed head. Rollbacks leave no records. Policy writers run sequentially until commit; long transactions delay other writers.
+```go
+err := adapter.CreateJournal(ctx, "casbin_journal", "app_user")
+```
 
-Pass existing application database role names after the schema name. The installer grants journal read access automatically and rejects owner or administrative roles. Without role names, no reader grants are issued. Roles, passwords and policy table permissions remain environment configuration; unexpected default grants abort installation.
+The application uses its separate database role:
 
-The journal records changes without LISTEN or enforcer updates. Existing policies are not copied; automatic cleanup is absent. `StartUpdatesListening` operates independently.
+```go
+reader, err := adapter.NewJournalReader(ctx, "casbin_journal", m, casbinbunadapter.JournalReaderOptions{})
+```
+
+After checking `err`, start `reader.Run(ctx)` in a managed goroutine and authorize through `reader.Enforce(...)`.
+
+- Defaults: polling every second, five-second synchronization timeout, thirty-second maximum policy age.
+- Errors, unfinished catch-up and stale policies return `ErrJournalNotReady`. `Status()` exposes errors.
+- History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone.
+
+Policy rows must be unique. Writers are serialized until commit; atomic publication rebuilds the model and role graph in memory. `Configure` callbacks must not share mutable enforcer state.
+
+For journals without cleanup support, the owner calls `EnableJournalCleanup(ctx, schema, appRole)` once. Manual scheduling uses `Sync(ctx)` and `PruneJournal(ctx, schema)`.
+
+Do not combine the journal reader with `StartUpdatesListening`.
 
 ## Tests
 
