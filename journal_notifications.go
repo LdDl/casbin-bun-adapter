@@ -67,7 +67,7 @@ func (adapter *BunAdapter) createJournalNotifications(ctx context.Context, tx bu
 	if err != nil {
 		return err
 	}
-	channel := adapter.Formatter().FormatQuery("?", journalNotificationChannel(schemaName))
+	channel := adapter.QueryGen().FormatQuery("?", journalNotificationChannel(schemaName))
 	body := fmt.Sprintf(journalNotificationSQL, sourceOID, channel)
 	_, err = tx.ExecContext(ctx, `
 		CREATE OR REPLACE FUNCTION ?.notify_change() RETURNS trigger

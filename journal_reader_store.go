@@ -64,7 +64,7 @@ func (reader *JournalReader) read(ctx context.Context, cursor int64, target *jou
 			var revisions []int64
 			err = tx.NewSelect().TableExpr("?.batches", bun.Name(reader.schema)).
 				Column("revision").Where("revision > ? AND revision <= ?", cursor, limit).
-				Order("revision").Limit(reader.options.BatchLimit).Scan(ctx, &revisions)
+				Order("revision").Limit(int64(reader.options.BatchLimit)).Scan(ctx, &revisions)
 			if err != nil {
 				return err
 			}

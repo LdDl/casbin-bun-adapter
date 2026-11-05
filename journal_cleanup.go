@@ -58,7 +58,7 @@ func (adapter *BunAdapter) EnableJournalCleanup(ctx context.Context, schemaName 
 }
 
 func (adapter *BunAdapter) createJournalCleanup(ctx context.Context, tx bun.Tx, schemaName string, readerRoles []string) error {
-	schema := adapter.Formatter().FormatQuery("?", bun.Name(schemaName))
+	schema := adapter.QueryGen().FormatQuery("?", bun.Name(schemaName))
 	_, err := tx.ExecContext(ctx, `CREATE OR REPLACE FUNCTION ?.prune_changes() RETURNS integer
 		LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS ?`, bun.Name(schemaName), fmt.Sprintf(journalCleanupSQL, schema, journalCleanupBatchLimit))
 	if err != nil {

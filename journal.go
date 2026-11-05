@@ -85,7 +85,7 @@ func (adapter *BunAdapter) CreateJournal(ctx context.Context, schemaName string,
 		if err != nil {
 			return err
 		}
-		journal := adapter.Formatter().FormatQuery("?", bun.Name(schemaName))
+		journal := adapter.QueryGen().FormatQuery("?", bun.Name(schemaName))
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(journalTablesSQL, journal))
 		if err != nil {
 			return err
@@ -100,8 +100,8 @@ func (adapter *BunAdapter) CreateJournal(ctx context.Context, schemaName string,
 		newFields := make([]string, len(columns))
 		keys := []string{"ptype", "v0", "v1", "v2", "v3", "v4", "v5"}
 		for i, column := range columns {
-			oldFields[i] = adapter.Formatter().FormatQuery("?, OLD.?", keys[i], bun.Name(column))
-			newFields[i] = adapter.Formatter().FormatQuery("?, NEW.?", keys[i], bun.Name(column))
+			oldFields[i] = adapter.QueryGen().FormatQuery("?, OLD.?", keys[i], bun.Name(column))
+			newFields[i] = adapter.QueryGen().FormatQuery("?, NEW.?", keys[i], bun.Name(column))
 		}
 		recordBody := fmt.Sprintf(journalRecordSQL, source.OID, journal, strings.Join(oldFields, ", "), strings.Join(newFields, ", "))
 		_, err = tx.ExecContext(ctx, `CREATE FUNCTION ?.record_change() RETURNS trigger
