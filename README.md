@@ -94,7 +94,7 @@ Rules support six fields (`v0` through `v5`, type `*string`). NULL marks unused 
 
 ## Transactional journal
 
-Requires PostgreSQL 14+, a new journal schema and a permanent policy table without inheritance or partitions. During migrations, the table owner installs the journal and grants access to an existing application role:
+Requires PostgreSQL 14+, a new journal schema and a permanent policy table without inheritance or partitions. Journal notifications prevent policy transactions from using `PREPARE TRANSACTION`. During migrations, the table owner installs the journal and grants access to an existing application role:
 
 ```go
 err := adapter.CreateJournal(ctx, "casbin_journal", "app_user")
@@ -103,18 +103,22 @@ err := adapter.CreateJournal(ctx, "casbin_journal", "app_user")
 The application uses its separate database role:
 
 ```go
-reader, err := adapter.NewJournalReader(ctx, "casbin_journal", m, casbinbunadapter.JournalReaderOptions{})
+reader, err := adapter.NewJournalReader(ctx, "casbin_journal", m, casbinbunadapter.JournalReaderOptions{Listen: true})
 ```
 
 After checking `err`, authorize through `reader.EnforceContext(ctx, ...)` or `reader.Enforce(...)`. Each call reads the journal position from the primary PostgreSQL database and catches up to that position before evaluating access. Later writes do not extend its target. Synchronization failures return `ErrJournalNotReady`; context errors remain available through `errors.Is`. The default timeout is five seconds, including waiting for another updater.
 
 `EnforceCached(...)` explicitly uses only local policies and can miss recent changes. It rejects synchronization errors, known unfinished catch-up and policies older than `MaxStaleness` (thirty seconds by default).
 
-`Run(ctx)` maintains history retention. Background policy polling is disabled by default; a positive `PollInterval` enables it. Strict checks work without `Run`, including after it stops. History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone. `Status()` exposes synchronization and cleanup errors.
+`Run(ctx)` maintains retention. `Listen: true` also enables LISTEN/NOTIFY over a dedicated pgdriver connection to PostgreSQL or a session pool. Transaction pooling is unsupported for LISTEN. Notifications carry no policies; connection setup and reconnection trigger journal catch-up. A probe checks the connection every thirty seconds. `Status()` exposes listener, synchronization and cleanup errors. Polling is off by default; `PollInterval` enables it. Strict checks work without `Run`, including after it stops.
+
+History older than seven days is cleaned in portions of up to 1000 complete transactions. Readers reload policies if needed history is gone.
 
 Policy rows must be unique. Writers are serialized until commit. Standard models reuse two enforcers: changed policies and role links are applied to the idle copy before atomic publication. An occupied spare, reload, `TRUNCATE`, `Configure`, conditional roles, subject-priority effects or nonnumeric priorities require rebuilding. Reuse keeps an extra enforcer in memory; Casbin may reindex the affected policy set on removal. `Configure` callbacks must not share mutable enforcer state.
 
 For journals without cleanup support, the owner calls `EnableJournalCleanup(ctx, schema, appRole)` once. Manual scheduling uses `Sync(ctx)` and `PruneJournal(ctx, schema)`.
+
+For journals without notifications, the owner calls `EnableJournalNotifications(ctx, schema)`. New journals include them through `CreateJournal`.
 
 Do not combine the journal reader with `StartUpdatesListening`.
 

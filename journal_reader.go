@@ -16,6 +16,8 @@ var ErrJournalNotReady = errors.New("policy journal is not synchronized")
 
 // JournalReaderOptions controls synchronization and explicitly cached checks.
 type JournalReaderOptions struct {
+	// Listen enables notification-driven synchronization in Run through a dedicated pgdriver connection.
+	Listen bool
 	// PollInterval enables background synchronization when positive. Zero disables polling.
 	PollInterval time.Duration
 	// Timeout bounds database synchronization, including waiting for another updater.
@@ -35,6 +37,8 @@ type JournalStatus struct {
 	LastSync     time.Time
 	Error        error
 	CleanupError error
+	Listening    bool
+	ListenError  error
 }
 
 // JournalReader owns a read-only authorization view; policies are changed in PostgreSQL.
@@ -184,56 +188,6 @@ func (reader *JournalReader) Reload(ctx context.Context) error {
 	reader.identity = 0
 	reader.viewMu.Unlock()
 	return reader.synchronize(ctx, nil)
-}
-
-// Run maintains journal retention and optionally polls when PollInterval is positive.
-// Strict checks do not require Run and continue working after it stops.
-func (reader *JournalReader) Run(ctx context.Context) error {
-	if !reader.runMu.TryLock() {
-		return fmt.Errorf("journal reader is already running")
-	}
-	defer reader.runMu.Unlock()
-	interval := reader.options.PollInterval
-	if interval == 0 || interval > time.Minute {
-		interval = time.Minute
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	var cleanedAt time.Time
-	var polledAt time.Time
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if reader.options.PollInterval > 0 && time.Since(polledAt) >= reader.options.PollInterval {
-			_ = reader.Sync(ctx)
-			status := reader.Status()
-			if status.Error != nil || status.Revision >= status.Head {
-				polledAt = time.Now()
-			}
-		}
-		if ctx.Err() == nil && time.Since(cleanedAt) >= time.Minute {
-			cleanupCtx, cancel := context.WithTimeout(ctx, reader.options.Timeout)
-			removed, cleanupErr := reader.adapter.PruneJournal(cleanupCtx, reader.schema)
-			cancel()
-			reader.viewMu.Lock()
-			reader.status.CleanupError = cleanupErr
-			reader.viewMu.Unlock()
-			if cleanupErr != nil || removed < journalCleanupBatchLimit {
-				cleanedAt = time.Now()
-			}
-		}
-		status := reader.Status()
-		if reader.options.PollInterval > 0 && ctx.Err() == nil && status.Error == nil && status.Revision < status.Head {
-			polledAt = time.Time{}
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 
 // Status returns the current cursor, synchronization time and errors.

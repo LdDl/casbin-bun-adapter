@@ -113,6 +113,10 @@ func (adapter *BunAdapter) CreateJournal(ctx context.Context, schemaName string,
 		if err != nil {
 			return err
 		}
+		err = adapter.createJournalNotifications(ctx, tx, schemaName)
+		if err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(journalPermissionsSQL, journal))
 		if err != nil {
 			return err
