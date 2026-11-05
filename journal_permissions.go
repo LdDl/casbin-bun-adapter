@@ -40,7 +40,8 @@ func grantJournalReaders(ctx context.Context, tx bun.Tx, schemaName string, sour
 		_, err = tx.ExecContext(ctx, `
 			GRANT USAGE ON SCHEMA ? TO ?;
 			GRANT SELECT ON ?.state, ?.batches, ?.changes TO ?;
-		`, bun.Name(schemaName), bun.Name(role), bun.Name(schemaName), bun.Name(schemaName), bun.Name(schemaName), bun.Name(role))
+			GRANT EXECUTE ON FUNCTION ?.prune_changes() TO ?;
+		`, bun.Name(schemaName), bun.Name(role), bun.Name(schemaName), bun.Name(schemaName), bun.Name(schemaName), bun.Name(role), bun.Name(schemaName), bun.Name(role))
 		if err != nil {
 			return err
 		}

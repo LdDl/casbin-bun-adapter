@@ -23,9 +23,9 @@ type journalSource struct {
 // It requires the policy table owner or a migration role with equivalent privileges.
 // Optional reader roles receive schema usage and SELECT on the journal tables.
 // Journal creation does not start synchronization with an enforcer.
-func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, readerRoles ...string) error {
-	names := []string{schemaName, a.matcher.SchemaName, a.matcher.TableName, a.matcher.PType,
-		a.matcher.V0, a.matcher.V1, a.matcher.V2, a.matcher.V3, a.matcher.V4, a.matcher.V5}
+func (adapter *BunAdapter) CreateJournal(ctx context.Context, schemaName string, readerRoles ...string) error {
+	names := []string{schemaName, adapter.matcher.SchemaName, adapter.matcher.TableName, adapter.matcher.PType,
+		adapter.matcher.V0, adapter.matcher.V1, adapter.matcher.V2, adapter.matcher.V3, adapter.matcher.V4, adapter.matcher.V5}
 	for _, name := range names {
 		err := validateJournalIdentifier(name)
 		if err != nil {
@@ -47,8 +47,8 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, reade
 		seen[column] = true
 	}
 
-	err := a.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.ExecContext(ctx, "LOCK TABLE ?.? IN ACCESS EXCLUSIVE MODE", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName))
+	err := adapter.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, "LOCK TABLE ?.? IN ACCESS EXCLUSIVE MODE", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName))
 		if err != nil {
 			return err
 		}
@@ -60,7 +60,7 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, reade
 			FROM pg_catalog.pg_class c
 			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 			WHERE n.nspname = ? AND c.relname = ?
-		`, a.matcher.SchemaName, a.matcher.TableName).Scan(ctx, &source)
+		`, adapter.matcher.SchemaName, adapter.matcher.TableName).Scan(ctx, &source)
 		if err != nil {
 			return err
 		}
@@ -85,7 +85,7 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, reade
 		if err != nil {
 			return err
 		}
-		journal := a.Formatter().FormatQuery("?", bun.Name(schemaName))
+		journal := adapter.Formatter().FormatQuery("?", bun.Name(schemaName))
 		_, err = tx.ExecContext(ctx, fmt.Sprintf(journalTablesSQL, journal))
 		if err != nil {
 			return err
@@ -100,12 +100,16 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, reade
 		newFields := make([]string, len(columns))
 		keys := []string{"ptype", "v0", "v1", "v2", "v3", "v4", "v5"}
 		for i, column := range columns {
-			oldFields[i] = a.Formatter().FormatQuery("?, OLD.?", keys[i], bun.Name(column))
-			newFields[i] = a.Formatter().FormatQuery("?, NEW.?", keys[i], bun.Name(column))
+			oldFields[i] = adapter.Formatter().FormatQuery("?, OLD.?", keys[i], bun.Name(column))
+			newFields[i] = adapter.Formatter().FormatQuery("?, NEW.?", keys[i], bun.Name(column))
 		}
 		recordBody := fmt.Sprintf(journalRecordSQL, source.OID, journal, strings.Join(oldFields, ", "), strings.Join(newFields, ", "))
 		_, err = tx.ExecContext(ctx, `CREATE FUNCTION ?.record_change() RETURNS trigger
 			LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS ?`, bun.Name(schemaName), recordBody)
+		if err != nil {
+			return err
+		}
+		err = adapter.createJournalCleanup(ctx, tx, schemaName, readerRoles)
 		if err != nil {
 			return err
 		}
@@ -135,12 +139,12 @@ func (a *BunAdapter) CreateJournal(ctx context.Context, schemaName string, reade
 			ALTER TABLE ?.? ENABLE ALWAYS TRIGGER casbin_journal_lock;
 			ALTER TABLE ?.? ENABLE ALWAYS TRIGGER casbin_journal_change;
 			ALTER TABLE ?.? ENABLE ALWAYS TRIGGER casbin_journal_truncate;
-		`, bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName), bun.Name(schemaName),
-			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName), bun.Name(schemaName),
-			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName), bun.Name(schemaName),
-			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName),
-			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName),
-			bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName))
+		`, bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName), bun.Name(schemaName),
+			bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName), bun.Name(schemaName),
+			bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName), bun.Name(schemaName),
+			bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName),
+			bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName),
+			bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName))
 		if err != nil {
 			return err
 		}

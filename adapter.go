@@ -28,20 +28,20 @@ func NewBunAdapter(bunConnection *bun.DB, opts ...func(*BunAdapter)) *BunAdapter
 }
 
 // LoadPolicy loads all policy rules from the storage
-func (a *BunAdapter) LoadPolicy(model model.Model) error {
+func (adapter *BunAdapter) LoadPolicy(model model.Model) error {
 	var data []CasbinPolicy
 	ctx := context.Background()
-	query := a.NewSelect().
+	query := adapter.NewSelect().
 		Model(&data).
-		ModelTableExpr("?.? as t", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
-		ColumnExpr("? as id", bun.Name(a.matcher.ID)).
-		ColumnExpr("? as ptype", bun.Name(a.matcher.PType)).
-		ColumnExpr("? as v0", bun.Name(a.matcher.V0)).
-		ColumnExpr("? as v1", bun.Name(a.matcher.V1)).
-		ColumnExpr("? as v2", bun.Name(a.matcher.V2)).
-		ColumnExpr("? as v3", bun.Name(a.matcher.V3)).
-		ColumnExpr("? as v4", bun.Name(a.matcher.V4)).
-		ColumnExpr("? as v5", bun.Name(a.matcher.V5))
+		ModelTableExpr("?.? as t", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName)).
+		ColumnExpr("? as id", bun.Name(adapter.matcher.ID)).
+		ColumnExpr("? as ptype", bun.Name(adapter.matcher.PType)).
+		ColumnExpr("? as v0", bun.Name(adapter.matcher.V0)).
+		ColumnExpr("? as v1", bun.Name(adapter.matcher.V1)).
+		ColumnExpr("? as v2", bun.Name(adapter.matcher.V2)).
+		ColumnExpr("? as v3", bun.Name(adapter.matcher.V3)).
+		ColumnExpr("? as v4", bun.Name(adapter.matcher.V4)).
+		ColumnExpr("? as v5", bun.Name(adapter.matcher.V5))
 	err := query.Scan(ctx)
 	if err != nil {
 		return err
@@ -81,7 +81,7 @@ func loadSinglePolicy(policy CasbinPolicy, model model.Model) error {
 }
 
 // SavePolicy saves all policy rules to the storage
-func (a *BunAdapter) SavePolicy(model model.Model) error {
+func (adapter *BunAdapter) SavePolicy(model model.Model) error {
 	policies := []CasbinPolicy{}
 
 	/* Collect policies and rules */
@@ -134,20 +134,20 @@ func (a *BunAdapter) SavePolicy(model model.Model) error {
 	}
 
 	/* Update table data */
-	err := a.savePoliciesToDB(policies)
+	err := adapter.savePoliciesToDB(policies)
 	if err != nil {
 		return errors.Wrap(err, "Can't save policies to the database")
 	}
 	return nil
 }
 
-func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
+func (adapter *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
 	ctx := context.Background()
 	// We should run it in transaction since potential INSERT operation problem
-	err := a.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err := adapter.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		/* Clean table first */
 		truncateQuery := tx.NewTruncateTable().
-			ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+			ModelTableExpr("?.?", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName)).
 			Model((*CasbinPolicy)(nil))
 		_, err := truncateQuery.Exec(ctx)
 		if err != nil {
@@ -159,16 +159,16 @@ func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
 			policy := policies[i]
 			// https://bun.uptrace.dev/guide/query-insert.html#maps
 			values := map[string]interface{}{
-				a.matcher.PType: policy.PType,
-				a.matcher.V0:    policy.V0,
-				a.matcher.V1:    policy.V1,
-				a.matcher.V2:    policy.V2,
-				a.matcher.V3:    policy.V3,
-				a.matcher.V4:    policy.V4,
-				a.matcher.V5:    policy.V5,
+				adapter.matcher.PType: policy.PType,
+				adapter.matcher.V0:    policy.V0,
+				adapter.matcher.V1:    policy.V1,
+				adapter.matcher.V2:    policy.V2,
+				adapter.matcher.V3:    policy.V3,
+				adapter.matcher.V4:    policy.V4,
+				adapter.matcher.V5:    policy.V5,
 			}
 			query := tx.NewInsert().
-				ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
+				ModelTableExpr("?.?", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName)).
 				Model(&values)
 			_, err = query.Exec(ctx)
 			if err != nil {
@@ -181,7 +181,7 @@ func (a *BunAdapter) savePoliciesToDB(policies []CasbinPolicy) error {
 }
 
 // AddPolicy adds a policy rule to the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
-func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
+func (adapter *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 	err := validatePolicy(sec, ptype, rule)
 	if err != nil {
 		return err
@@ -192,33 +192,33 @@ func (a *BunAdapter) AddPolicy(sec string, ptype string, rule []string) error {
 		return err
 	}
 	values := map[string]interface{}{
-		a.matcher.PType: newPolicy.PType,
-		a.matcher.V0:    newPolicy.V0,
-		a.matcher.V1:    newPolicy.V1,
-		a.matcher.V2:    newPolicy.V2,
-		a.matcher.V3:    newPolicy.V3,
-		a.matcher.V4:    newPolicy.V4,
-		a.matcher.V5:    newPolicy.V5,
+		adapter.matcher.PType: newPolicy.PType,
+		adapter.matcher.V0:    newPolicy.V0,
+		adapter.matcher.V1:    newPolicy.V1,
+		adapter.matcher.V2:    newPolicy.V2,
+		adapter.matcher.V3:    newPolicy.V3,
+		adapter.matcher.V4:    newPolicy.V4,
+		adapter.matcher.V5:    newPolicy.V5,
 	}
-	query := a.DB.NewInsert().
-		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
-		On("CONFLICT (?, ?, ?, ?, ?, ?, ?) DO NOTHING", bun.Name(a.matcher.PType), bun.Name(a.matcher.V0), bun.Name(a.matcher.V1), bun.Name(a.matcher.V2), bun.Name(a.matcher.V3), bun.Name(a.matcher.V4), bun.Name(a.matcher.V5)).
+	query := adapter.DB.NewInsert().
+		ModelTableExpr("?.?", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName)).
+		On("CONFLICT (?, ?, ?, ?, ?, ?, ?) DO NOTHING", bun.Name(adapter.matcher.PType), bun.Name(adapter.matcher.V0), bun.Name(adapter.matcher.V1), bun.Name(adapter.matcher.V2), bun.Name(adapter.matcher.V3), bun.Name(adapter.matcher.V4), bun.Name(adapter.matcher.V5)).
 		Model(&values)
 	_, err = query.Exec(ctx)
 	return err
 }
 
 // RemovePolicy removes a policy rule from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
-func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error {
+func (adapter *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error {
 	err := validatePolicy(sec, ptype, rule)
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
-	query := a.DB.NewDelete().
-		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
-		Where("? = ?", bun.Name(a.matcher.PType), ptype)
-	columns := []string{a.matcher.V0, a.matcher.V1, a.matcher.V2, a.matcher.V3, a.matcher.V4, a.matcher.V5}
+	query := adapter.DB.NewDelete().
+		ModelTableExpr("?.?", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName)).
+		Where("? = ?", bun.Name(adapter.matcher.PType), ptype)
+	columns := []string{adapter.matcher.V0, adapter.matcher.V1, adapter.matcher.V2, adapter.matcher.V3, adapter.matcher.V4, adapter.matcher.V5}
 	for i, column := range columns {
 		if i < len(rule) {
 			query = query.Where("? = ?", bun.Name(column), rule[i])
@@ -231,7 +231,7 @@ func (a *BunAdapter) RemovePolicy(sec string, ptype string, rule []string) error
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage. Needed for AutoSave, see the ref. https://casbin.org/docs/adapters/#autosave
-func (a *BunAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+func (adapter *BunAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
 	if sec != "p" && sec != "g" {
 		return fmt.Errorf("policy section must be p or g")
 	}
@@ -247,26 +247,26 @@ func (a *BunAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex i
 		return err
 	}
 	ctx := context.Background()
-	query := a.DB.NewDelete().
-		ModelTableExpr("?.?", bun.Name(a.matcher.SchemaName), bun.Name(a.matcher.TableName)).
-		Where("? = ?", bun.Name(a.matcher.PType), ptype)
+	query := adapter.DB.NewDelete().
+		ModelTableExpr("?.?", bun.Name(adapter.matcher.SchemaName), bun.Name(adapter.matcher.TableName)).
+		Where("? = ?", bun.Name(adapter.matcher.PType), ptype)
 	if v := extractRuleField(0, fieldIndex, fieldValues...); v != "" {
-		query = query.Where("? = ?", bun.Name(a.matcher.V0), v)
+		query = query.Where("? = ?", bun.Name(adapter.matcher.V0), v)
 	}
 	if v := extractRuleField(1, fieldIndex, fieldValues...); v != "" {
-		query = query.Where("? = ?", bun.Name(a.matcher.V1), v)
+		query = query.Where("? = ?", bun.Name(adapter.matcher.V1), v)
 	}
 	if v := extractRuleField(2, fieldIndex, fieldValues...); v != "" {
-		query = query.Where("? = ?", bun.Name(a.matcher.V2), v)
+		query = query.Where("? = ?", bun.Name(adapter.matcher.V2), v)
 	}
 	if v := extractRuleField(3, fieldIndex, fieldValues...); v != "" {
-		query = query.Where("? = ?", bun.Name(a.matcher.V3), v)
+		query = query.Where("? = ?", bun.Name(adapter.matcher.V3), v)
 	}
 	if v := extractRuleField(4, fieldIndex, fieldValues...); v != "" {
-		query = query.Where("? = ?", bun.Name(a.matcher.V4), v)
+		query = query.Where("? = ?", bun.Name(adapter.matcher.V4), v)
 	}
 	if v := extractRuleField(5, fieldIndex, fieldValues...); v != "" {
-		query = query.Where("? = ?", bun.Name(a.matcher.V5), v)
+		query = query.Where("? = ?", bun.Name(adapter.matcher.V5), v)
 	}
 	_, err = query.Exec(ctx)
 	return err

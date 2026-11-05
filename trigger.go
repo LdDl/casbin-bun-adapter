@@ -102,32 +102,32 @@ var (
 // It will check if trigger exists and if not creates it.
 // Finalized function name will match following template: "$SCHEMA_NAME$.$FUNCTION_NAME$"
 // Finalized trigger name will match following template: "$SCHEMA_NAME$_$TABLE_NAME$_$TRIGGER_NAME$"
-func (a *BunAdapter) PrepareTrigger() error {
+func (adapter *BunAdapter) PrepareTrigger() error {
 	replaceTr := ""
-	if a.trigger.TriggerReplace {
+	if adapter.trigger.TriggerReplace {
 		replaceTr = " OR REPLACE"
 	}
-	triggerBody := fmt.Sprintf(triggerTemplate, replaceTr, a.matcher.SchemaName, a.matcher.TableName, a.trigger.Name, a.trigger.FunctionSchemaName, a.trigger.FunctionName)
+	triggerBody := fmt.Sprintf(triggerTemplate, replaceTr, adapter.matcher.SchemaName, adapter.matcher.TableName, adapter.trigger.Name, adapter.trigger.FunctionSchemaName, adapter.trigger.FunctionName)
 	replaceFn := ""
-	if a.trigger.FunctionReplace {
+	if adapter.trigger.FunctionReplace {
 		replaceFn = " OR REPLACE"
 	}
-	triggerProcedureBody := fmt.Sprintf(triggerProcedureTemplate, replaceFn, a.trigger.FunctionSchemaName, a.trigger.FunctionName, a.trigger.ChannelName,
-		a.matcher.ID,
-		a.matcher.PType,
-		a.matcher.V0,
-		a.matcher.V1,
-		a.matcher.V2,
-		a.matcher.V3,
-		a.matcher.V4,
-		a.matcher.V5,
+	triggerProcedureBody := fmt.Sprintf(triggerProcedureTemplate, replaceFn, adapter.trigger.FunctionSchemaName, adapter.trigger.FunctionName, adapter.trigger.ChannelName,
+		adapter.matcher.ID,
+		adapter.matcher.PType,
+		adapter.matcher.V0,
+		adapter.matcher.V1,
+		adapter.matcher.V2,
+		adapter.matcher.V3,
+		adapter.matcher.V4,
+		adapter.matcher.V5,
 		EVENT_PAYLOAD_INSERT,
 		EVENT_PAYLOAD_UPDATE,
 		EVENT_PAYLOAD_DELETE,
 	)
 	ctx := context.Background()
 	// We should run it in transaction since potential INSERT operation problem
-	err := a.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err := adapter.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		triggerProcedureQuery := fmt.Sprintf(
 			`
 				DO $$
@@ -156,8 +156,8 @@ func (a *BunAdapter) PrepareTrigger() error {
 	return err
 }
 
-func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) error {
-	dbChanMessages, err := a.initDBListener()
+func (adapter *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) error {
+	dbChanMessages, err := adapter.initDBListener()
 	if err != nil {
 		return errors.Wrap(err, "Can't initialize database LISTEN")
 	}
@@ -177,10 +177,10 @@ func (a *BunAdapter) StartUpdatesListening(enforcer *casbin.SyncedEnforcer) erro
 	return nil
 }
 
-func (a *BunAdapter) initDBListener() (<-chan pgdriver.Notification, error) {
+func (adapter *BunAdapter) initDBListener() (<-chan pgdriver.Notification, error) {
 	ctx := context.Background()
-	ln := pgdriver.NewListener(a.DB)
-	err := ln.Listen(ctx, a.trigger.ChannelName)
+	ln := pgdriver.NewListener(adapter.DB)
+	err := ln.Listen(ctx, adapter.trigger.ChannelName)
 	if err != nil {
 		return nil, err
 	}
